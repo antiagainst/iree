@@ -33,6 +33,7 @@ namespace {
 static const char* kRenderDocSearchNames[] = {
 #if defined(IREE_PLATFORM_WINDOWS)
     "renderdoc.dll",
+    "C:/Program Files/RenderDoc/renderdoc.dll",
 #else
     "librenderdoc.so",
 #endif  // IREE_PLATFORM_WINDOWS
@@ -68,6 +69,8 @@ Status RenderDocCaptureManager::Connect() {
   }
 
   LOG(INFO) << "Connected to RenderDoc's API";
+  LOG(INFO) << "Writing captures to "
+            << renderdoc_api_->GetCaptureFilePathTemplate();
 
   return OkStatus();
 }
