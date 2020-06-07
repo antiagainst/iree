@@ -46,6 +46,8 @@ option(IREE_BUILD_DEBUGGER "Builds the IREE debugger app." OFF)
 option(IREE_BUILD_PYTHON_BINDINGS "Builds the IREE python bindings" OFF)
 option(IREE_BUILD_EXPERIMENTAL "Builds experimental projects." OFF)
 
+option(IREE_VULKAN_ENABLE_VENDOR_TOOLS "Enables vendor-specific tools for Vulkan backend" ON)
+
 #TODO: Make this functional!
 set(IREE_HAL_DRIVERS_TO_BUILD "all"
   CACHE STRING "Semicolon-separated list of HAL drivers to build, or \"all\".")
@@ -155,6 +157,7 @@ endforeach()
 
 list(APPEND CMAKE_MODULE_PATH
   ${CMAKE_CURRENT_LIST_DIR}/build_tools/cmake/
+  ${CMAKE_CURRENT_LIST_DIR}/build_tools/cmake/modules/
   ${CMAKE_CURRENT_LIST_DIR}/bindings/python/build_tools/cmake/
   ${CMAKE_CURRENT_LIST_DIR}/third_party/abseil-cpp/absl/copts/
 )
@@ -424,6 +427,19 @@ if(${IREE_BUILD_PYTHON_BINDINGS})
   # after. This should be pulled in locally at some point.
   add_subdirectory(third_party/pybind11 EXCLUDE_FROM_ALL)
   iree_multipy_configure()
+endif()
+
+#-------------------------------------------------------------------------------
+# Development tool dependencies
+#-------------------------------------------------------------------------------
+
+if(${IREE_HAL_DRIVER_VULKAN} AND ${IREE_VULKAN_ENABLE_VENDOR_TOOLS})
+  # Try to find vendor-specific tools for development.
+  find_package(NsightGraphics) # NVIDIA Nsight Graphics
+  if(NsightGraphics_FOUND)
+    set(IREE_ENABLE_NSIGHT_GRAPHICS "ON" CACHE BOOL
+        "Enable Nsight Graphics SDK integration" FORCE)
+  endif()
 endif()
 
 #-------------------------------------------------------------------------------

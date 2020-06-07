@@ -312,6 +312,24 @@ iree_cc_library(
   PUBLIC
 )
 
+if(IREE_ENABLE_NSIGHT_GRAPHICS)
+  iree_cc_library(
+    NAME
+      nsight_graphics_manager
+    HDRS
+      "nsight_graphics_manager.h"
+    SRCS
+      "nsight_graphics_manager.cc"
+    DEPS
+      iree::base::logging
+      iree::base::status
+      iree::base::tracing
+      iree::hal::debug_capture_manager
+      NVIDIA::NsightGraphics
+    PUBLIC
+  )
+endif()
+
 iree_cc_library(
   NAME
     pipeline_cache
@@ -568,6 +586,13 @@ iree_cc_library(
     Vulkan::Headers
   PUBLIC
 )
+
+if(IREE_ENABLE_NSIGHT_GRAPHICS)
+  target_link_libraries(iree_hal_vulkan_vulkan_device
+    PRIVATE iree_hal_vulkan_nsight_graphics_manager)
+  target_compile_definitions(iree_hal_vulkan_vulkan_driver
+    PRIVATE IREE_ENABLE_NSIGHT_GRAPHICS)
+endif()
 
 iree_cc_library(
   NAME
