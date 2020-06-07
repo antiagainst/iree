@@ -25,13 +25,6 @@
 #include "iree/hal/vulkan/extensibility_util.h"
 #include "iree/hal/vulkan/status_util.h"
 
-#ifdef IREE_ENABLE_NSIGHT_GRAPHICS
-#include "iree/hal/vulkan/nsight_graphics_manager.h"
-
-ABSL_FLAG(bool, vulkan_nsight, false,
-          "Enables Nsight Graphics API integration.");
-#endif
-
 ABSL_FLAG(bool, vulkan_renderdoc, false, "Enables RenderDoc API integration.");
 ABSL_FLAG(int, vulkan_default_index, 0, "Index of the default Vulkan device.");
 
@@ -89,25 +82,16 @@ StatusOr<DeviceInfo> PopulateDeviceInfo(VkPhysicalDevice physical_device,
 
 // static
 StatusOr<ref_ptr<VulkanDriver>> VulkanDriver::Create(
-    Options options, ref_ptr<DynamicSymbols> syms) {
+    Options options, ref_ptr<DynamicSymbols> syms,
+    std::unique_ptr<DebugCaptureManager> debug_capture_manager) {
   IREE_TRACE_SCOPE0("VulkanDriver::Create");
-
-  std::unique_ptr<DebugCaptureManager> debug_capture_manager;
 
   bool enable_renderdoc = absl::GetFlag(FLAGS_vulkan_renderdoc);
 
-#ifdef IREE_ENABLE_NSIGHT_GRAPHICS
-  bool enable_nsight = absl::GetFlag(FLAGS_vulkan_nsight);
-
-  if (enable_nsight && enable_renderdoc) {
+  if (debug_capture_manager != nullptr && enable_renderdoc) {
     return InvalidArgumentErrorBuilder(IREE_LOC)
            << "Cannot enable both Nsight Graphics and RenderDoc";
   }
-  if (enable_nsight) {
-    debug_capture_manager = std::make_unique<NsightGraphicsManager>();
-    RETURN_IF_ERROR(debug_capture_manager->Connect());
-  }
-#endif
 
   // Load and connect to RenderDoc before instance creation.
   // Note: RenderDoc assumes that only a single VkDevice is used:
