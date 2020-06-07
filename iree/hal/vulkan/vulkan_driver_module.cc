@@ -22,6 +22,13 @@
 #include "iree/hal/vulkan/dynamic_symbols.h"
 #include "iree/hal/vulkan/vulkan_driver.h"
 
+#ifdef IREE_ENABLE_NSIGHT_GRAPHICS
+#include "iree/hal/vulkan/nsight_graphics_manager.h"
+
+ABSL_FLAG(bool, vulkan_nsight, false,
+          "Enables Nsight Graphics API integration.");
+#endif
+
 ABSL_FLAG(bool, vulkan_validation_layers, true,
           "Enables standard Vulkan validation layers.");
 ABSL_FLAG(bool, vulkan_debug_utils, true,
@@ -38,6 +45,15 @@ namespace {
 
 StatusOr<ref_ptr<Driver>> CreateVulkanDriver() {
   IREE_TRACE_SCOPE0("CreateVulkanDriver");
+
+#ifdef IREE_ENABLE_NSIGHT_GRAPHICS
+  std::unique_ptr<DebugCaptureManager> debug_capture_manager;
+  if (absl::GetFlag(FLAGS_vulkan_nsight)) {
+    debug_capture_manager = std::make_unique<NsightGraphicsManager>();
+    RETURN_IF_ERROR(debug_capture_manager->Connect());
+    LOG(INFO) << "Connected to Nsight Graphics via API";
+  }
+#endif
 
   // Load the Vulkan library. This will fail if the library cannot be found or
   // does not have the expected functions.
@@ -95,7 +111,9 @@ StatusOr<ref_ptr<Driver>> CreateVulkanDriver() {
       "VK_LAYER_KHRONOS_timeline_semaphore");
 
   // Create the driver and VkInstance.
-  ASSIGN_OR_RETURN(auto driver, VulkanDriver::Create(options, std::move(syms)));
+  ASSIGN_OR_RETURN(auto driver,
+                   VulkanDriver::Create(options, std::move(syms),
+                                        std::move(debug_capture_manager)));
 
   return driver;
 }

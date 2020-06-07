@@ -45,8 +45,9 @@ class VulkanDriver final : public Driver {
   };
 
   // Creates a VulkanDriver that manages its own VkInstance.
-  static StatusOr<ref_ptr<VulkanDriver>> Create(Options options,
-                                                ref_ptr<DynamicSymbols> syms);
+  static StatusOr<ref_ptr<VulkanDriver>> Create(
+      Options options, ref_ptr<DynamicSymbols> syms,
+      std::unique_ptr<DebugCaptureManager> debug_capture_manager = nullptr);
 
   // Creates a VulkanDriver that shares an externally managed VkInstance.
   //

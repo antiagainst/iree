@@ -509,13 +509,6 @@ iree_cc_library(
   PUBLIC
 )
 
-if(IREE_ENABLE_NSIGHT_GRAPHICS)
-  target_link_libraries(iree_hal_vulkan_vulkan_device
-    PRIVATE iree_hal_vulkan_nsight_graphics_manager)
-  target_compile_definitions(iree_hal_vulkan_vulkan_driver
-    PRIVATE IREE_ENABLE_NSIGHT_GRAPHICS)
-endif()
-
 iree_cc_library(
   NAME
     vulkan_driver_module
@@ -534,3 +527,10 @@ iree_cc_library(
   ALWAYSLINK
   PUBLIC
 )
+
+if(IREE_ENABLE_NSIGHT_GRAPHICS)
+  target_link_libraries(iree_hal_vulkan_vulkan_driver_module
+    PRIVATE iree_hal_vulkan_nsight_graphics_manager)
+  target_compile_definitions(iree_hal_vulkan_vulkan_driver_module
+    PRIVATE IREE_ENABLE_NSIGHT_GRAPHICS)
+endif()
