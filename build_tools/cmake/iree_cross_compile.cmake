@@ -57,13 +57,16 @@ function(iree_create_configuration CONFIG_NAME)
 
   set(_CONFIG_C_COMPILER ${IREE_${CONFIG_NAME}_C_COMPILER})
   set(_CONFIG_CXX_COMPILER ${IREE_${CONFIG_NAME}_CXX_COMPILER})
+  set(_COMPILER_CONFIG "")
 
   # Check the compilers are specified in the caller.
-  if("${_CONFIG_C_COMPILER}" STREQUAL "")
-    message(FATAL_ERROR "Must define IREE_${CONFIG_NAME}_C_COMPILER for \"${CONFIG_NAME}\" configuration build")
+  if(_CONFIG_C_COMPILER)
+    message(STATUS "C compiler for ${CONFIG_NAME} build: ${_CONFIG_C_COMPILER}")
+    list(APPEND _COMPILER_CONFIG "-DCMAKE_C_COMPILER=${_CONFIG_C_COMPILER}")
   endif()
-  if("${_CONFIG_CXX_COMPILER}" STREQUAL "")
-    message(FATAL_ERROR "Must define IREE_${CONFIG_NAME}_CXX_COMPILER for \"${CONFIG_NAME}\" configuration build")
+  if(_CONFIG_CXX_COMPILER)
+    message(STATUS "C++ compiler for ${CONFIG_NAME} build: ${_CONFIG_CXX_COMPILER}")
+    list(APPEND _COMPILER_CONFIG "-DCMAKE_CXX_COMPILER=${_CONFIG_CXX_COMPILER}")
   endif()
 
   add_custom_command(OUTPUT ${_CONFIG_BINARY_ROOT}
@@ -96,15 +99,11 @@ function(iree_create_configuration CONFIG_NAME)
   #   https://github.com/google/iree/tree/main/build_tools/cmake/iree_cross_compile.cmake:iree_cross_compile_invoke
   # )
 
-  message(STATUS "C compiler for ${CONFIG_NAME} build: ${_CONFIG_C_COMPILER}")
-  message(STATUS "C++ compiler for ${CONFIG_NAME} build: ${_CONFIG_CXX_COMPILER}")
-
   add_custom_command(OUTPUT ${IREE_${CONFIG_NAME}_BINARY_ROOT}/CMakeCache.txt
     COMMAND "${CMAKE_COMMAND}" "${PROJECT_SOURCE_DIR}" -G "${CMAKE_GENERATOR}"
         -DCMAKE_MAKE_PROGRAM="${CMAKE_MAKE_PROGRAM}"
         -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE}"
-        -DCMAKE_C_COMPILER="${_CONFIG_C_COMPILER}"
-        -DCMAKE_CXX_COMPILER="${_CONFIG_CXX_COMPILER}"
+        ${_COMPILER_CONFIG}
         # LINT.IfChange(iree_cross_compile_invoke)
         -DIREE_ENABLE_RUNTIME_TRACING=${_CONFIG_ENABLE_RUNTIME_TRACING}
         -DIREE_ENABLE_MLIR=${_CONFIG_ENABLE_MLIR}

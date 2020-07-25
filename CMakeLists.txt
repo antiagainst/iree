@@ -179,10 +179,12 @@ if(CMAKE_CROSSCOMPILING)
   # figuring out the host triple and toolchain. We are passing in the host
   # C/C++ compiler toolchain for IREE anyway; so we can give LLVM side some
   # help here. This hides some complexity and ugliness from the users.
-  set(CROSS_TOOLCHAIN_FLAGS_NATIVE
-      "-DCMAKE_C_COMPILER=\"${IREE_HOST_C_COMPILER}\";-DCMAKE_CXX_COMPILER=\"${IREE_HOST_CXX_COMPILER}\""
-      CACHE FILEPATH "LLVM toolchain configuration for host build"
-  )
+  if(IREE_HOST_C_COMPILER AND IREE_HOST_CXX_COMPILER)
+    set(CROSS_TOOLCHAIN_FLAGS_NATIVE
+        "-DCMAKE_C_COMPILER=\"${IREE_HOST_C_COMPILER}\";-DCMAKE_CXX_COMPILER=\"${IREE_HOST_CXX_COMPILER}\""
+        CACHE FILEPATH "LLVM toolchain configuration for host build"
+    )
+  endif()
 
   include(iree_cross_compile)
 
