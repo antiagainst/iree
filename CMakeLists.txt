@@ -222,6 +222,13 @@ set(CMAKE_POSITION_INDEPENDENT_CODE TRUE)
 # IREE compilation toolchain configuration
 #-------------------------------------------------------------------------------
 
+# Using buildcache if exists. See https://github.com/mbitsnbites/buildcache
+find_program(BUILDCACHE_PROGRAM buildcache)
+if(BUILDCACHE_PROGRAM)
+  message(STATUS "Found buildcache; using it")
+  set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE "${BUILDCACHE_PROGRAM}")
+endif()
+
 # Enable using lld as the linker for C/C++ targets. This affects IREE and all
 # dependency projects.
 option(IREE_ENABLE_LLD "Use lld when linking" OFF)
