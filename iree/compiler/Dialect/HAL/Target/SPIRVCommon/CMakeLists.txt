@@ -20,24 +20,21 @@ iree_add_all_subdirs()
 
 iree_cc_library(
   NAME
-    VulkanSPIRV
+    SPIRVCommon
   HDRS
-    "VulkanSPIRVTarget.h"
+    "SPIRVTarget.h"
   SRCS
-    "VulkanSPIRVTarget.cpp"
+    "SPIRVTarget.cpp"
   DEPS
     LLVMSupport
     MLIRIR
-    MLIRParser
     MLIRSPIRV
     MLIRSPIRVSerialization
+    MLIRSPIRVTransforms
     MLIRSupport
-    flatbuffers
+    iree::compiler::Conversion::LinalgToSPIRV
     iree::compiler::Dialect::Flow::IR
-    iree::compiler::Dialect::HAL::Target::SPIRVCommon
+    iree::compiler::Dialect::HAL::Target
     iree::compiler::Dialect::IREE::IR
-    iree::compiler::Dialect::Vulkan::IR
-    iree::compiler::Dialect::Vulkan::Utils
-    iree::schemas::spirv_executable_def_cc_fbs
   PUBLIC
 )

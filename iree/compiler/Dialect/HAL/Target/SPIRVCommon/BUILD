@@ -29,25 +29,22 @@ endif()
 )
 
 cc_library(
-    name = "VulkanSPIRV",
+    name = "SPIRVCommon",
     srcs = [
-        "VulkanSPIRVTarget.cpp",
+        "SPIRVTarget.cpp",
     ],
     hdrs = [
-        "VulkanSPIRVTarget.h",
+        "SPIRVTarget.h",
     ],
     deps = [
+        "//iree/compiler/Conversion/LinalgToSPIRV",
         "//iree/compiler/Dialect/Flow/IR",
-        "//iree/compiler/Dialect/HAL/Target/SPIRVCommon",
+        "//iree/compiler/Dialect/HAL/Target",
         "//iree/compiler/Dialect/IREE/IR",
-        "//iree/compiler/Dialect/Vulkan/IR",
-        "//iree/compiler/Dialect/Vulkan/Utils",
-        "//iree/schemas:spirv_executable_def_cc_fbs",
-        "@com_github_google_flatbuffers//:flatbuffers",
         "@llvm-project//llvm:Support",
         "@llvm-project//mlir:IR",
-        "@llvm-project//mlir:Parser",
         "@llvm-project//mlir:SPIRVDialect",
+        "@llvm-project//mlir:SPIRVLowering",
         "@llvm-project//mlir:SPIRVSerialization",
         "@llvm-project//mlir:Support",
     ],
