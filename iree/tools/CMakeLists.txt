@@ -39,6 +39,13 @@ if(${IREE_TARGET_BACKEND_VULKAN-SPIRV})
   list(APPEND IREE_COMPILER_TARGET_COPTS "-DIREE_HAVE_VULKANSPIRV_TARGET")
 endif()
 
+set (IREE_HAL_DRIVER_SOURCES "")
+set (IREE_HAL_DRIVER_DEPS "")
+if(${IREE_HAL_DRIVER_METAL})
+  list(APPEND IREE_HAL_DRIVER_SOURCES "${IREE_ROOT_DIR}/iree/hal/metal/metal_driver_module.cc")
+  list(APPEND IREE_HAL_DRIVER_DEPS iree::hal::metal::metal_driver)
+endif()
+
 if(IREE_ENABLE_EMITC)
   set(IREE_OPT_CONDITIONAL_DEPS
     MLIREmitC
@@ -94,6 +101,7 @@ iree_cc_binary(
     iree-run-module
   SRCS
     "run_module_main.cc"
+    ${IREE_HAL_DRIVER_SOURCES}
   DEPS
     ::vm_util
     absl::flags
@@ -102,10 +110,11 @@ iree_cc_binary(
     iree::base::init
     iree::base::status
     iree::base::tracing
+    iree::hal::driver_registry
     iree::modules::hal
     iree::vm
     iree::vm::bytecode_module
-    ${IREE_HAL_DRIVER_MODULES}
+    ${IREE_HAL_DRIVER_DEPS}
 )
 
 if(${IREE_ENABLE_MLIR})
@@ -114,11 +123,14 @@ if(${IREE_ENABLE_MLIR})
       iree-tblgen
     SRCS
       "${IREE_ROOT_DIR}/third_party/llvm-project/mlir/tools/mlir-tblgen/mlir-tblgen.cpp"
+      "${IREE_ROOT_DIR}/iree/compiler/Dialect/IREE/Tools/StructAttrGen.cpp"
+      "${IREE_ROOT_DIR}/iree/compiler/Dialect/VM/Tools/VMOpEncoderGen.cpp"
+      "${IREE_ROOT_DIR}/iree/compiler/Dialect/VM/Tools/VMOpTableGen.cpp"
     DEPS
+      LLVMSupport
+      LLVMTableGen
       MLIRSupport
       MLIRTableGen
-      iree::compiler::Dialect::IREE::Tools
-      iree::compiler::Dialect::VM::Tools
     LINKOPTS
       "-lpthread"
     HOSTONLY

@@ -14,6 +14,9 @@
 
 #include "iree/hal/metal/metal_device.h"
 
+#include <chrono>
+#include <thread>
+
 #include "absl/memory/memory.h"
 #include "absl/strings/str_cat.h"
 #include "iree/base/status.h"
@@ -72,6 +75,7 @@ MetalDevice::~MetalDevice() {
   IREE_TRACE_SCOPE0("MetalDevice::dtor");
   if (debug_capture_manager_ && debug_capture_manager_->is_capturing()) {
     debug_capture_manager_->StopCapture();
+    std::this_thread::sleep_for(std::chrono::seconds(5));
   }
   [metal_handle_ release];
 }
