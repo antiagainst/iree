@@ -14,6 +14,8 @@
 
 #include "iree/hal/vulkan/nsight_graphics_manager.h"
 
+#include <vector>
+
 #include "NGFX_Injection.h"
 #include "iree/base/logging.h"
 #include "iree/base/tracing.h"

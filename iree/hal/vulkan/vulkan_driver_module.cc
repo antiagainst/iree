@@ -50,7 +50,7 @@ StatusOr<ref_ptr<Driver>> CreateVulkanDriver() {
   std::unique_ptr<DebugCaptureManager> debug_capture_manager;
   if (absl::GetFlag(FLAGS_vulkan_nsight)) {
     debug_capture_manager = std::make_unique<NsightGraphicsManager>();
-    RETURN_IF_ERROR(debug_capture_manager->Connect());
+    IREE_RETURN_IF_ERROR(debug_capture_manager->Connect());
     LOG(INFO) << "Connected to Nsight Graphics via API";
   }
 #endif

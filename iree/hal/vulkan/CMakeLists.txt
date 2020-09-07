@@ -312,7 +312,7 @@ iree_cc_library(
   PUBLIC
 )
 
-if(IREE_ENABLE_NSIGHT_GRAPHICS)
+if(${IREE_ENABLE_NSIGHT_GRAPHICS})
   iree_cc_library(
     NAME
       nsight_graphics_manager
