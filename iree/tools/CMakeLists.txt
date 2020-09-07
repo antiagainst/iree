@@ -416,3 +416,68 @@ if(${IREE_ENABLE_MLIR})
     )
   endif()
 endif()
+
+if(${IREE_HAL_DRIVER_VULKAN})
+  # This target statically links against Vulkan.
+  # One way to achieve this is by installing the Vulkan SDK from
+  # https://vulkan.lunarg.com/.
+  # If Vulkan is not found, omit the target.
+  include(FindVulkan)
+  if(NOT Vulkan_FOUND)
+    return()
+  endif()
+
+  iree_cc_library(
+    NAME
+      vulkan_gui_util
+    HDRS
+      "vulkan_gui_util.h"
+    SRCS
+      "vulkan_gui_util.cc"
+    DEPS
+      absl::span
+      absl::strings
+      dear_imgui::dear_imgui
+      dear_imgui::impl_sdl
+      dear_imgui::impl_vulkan
+      iree::base::api
+      iree::base::logging
+      iree::hal::api
+      iree::hal::vulkan::api
+      iree::modules::hal
+      iree::vm
+      iree::vm::bytecode_module
+      iree::vm::ref_cc
+      SDL2-static
+      Vulkan::Vulkan
+  )
+
+  if(${CMAKE_HOST_SYSTEM_NAME} STREQUAL "Windows")
+    set(_GUI_LINKOPTS "-SUBSYSTEM:WINDOWS")
+  else()
+    set(_GUI_LINKOPTS "")
+  endif()
+
+  iree_cc_binary(
+    NAME
+      iree-run-module-vulkan-gui
+    SRCS
+      "run_module_vulkan_gui.cc"
+    DEPS
+      ::vm_util
+      ::vulkan_gui_util
+      absl::flags
+      dear_imgui::dear_imgui
+      iree::base::file_io
+      iree::base::init
+      iree::base::main
+      iree::base::status
+      iree::base::tracing
+      iree::hal::vulkan::vulkan_driver_module
+      iree::modules::hal
+      iree::vm
+      iree::vm::bytecode_module
+    LINKOPTS
+      "${_GUI_LINKOPTS}"
+  )
+endif()
