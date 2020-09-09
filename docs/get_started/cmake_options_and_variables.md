@@ -72,27 +72,37 @@ Builds experimental projects. Defaults to `OFF`.
 
 #### `IREE_HAL_DRIVERS_TO_BUILD`:STRING
 
-*Righ now this only affects whether tests are enabled when compiling for
-Android; it will be fully supported in the future!*
-
 Semicolon-separated list of HAL drivers to build, or `all` for building all HAL
-drivers. Case-insensitive. Defaults to `all`. Example:
-`-DIREE_HAL_DRIVERS_TO_BUILD="Vulkan;VMLA"`.
+drivers. Case-insensitive. If an empty list is provided, will build no HAL
+drivers. Defaults to `all`. Example: `-DIREE_HAL_DRIVERS_TO_BUILD=Vulkan;VMLA`.
 
 #### `IREE_TARGET_BACKENDS_TO_BUILD`:STRING
 
-*Righ now this only affects whether tests are enabled when compiling for
-Android; it will be fully supported in the future!*
-
-Semicolon-separated list of HAL drivers to build, or `all` for building all
-compiler target backends. Case-insensitive. Defaults to `all`. Example:
-`-DIREE_HAL_DRIVERS_TO_BUILD="Vulkan-SPIRV;VMLA"`.
+Semicolon-separated list of target backend to build, or `all` for building all
+compiler target backends. Case-insensitive. If an empty list is provided, will
+build no target backends. Defaults to `all`. Example:
+`-DIREE_TARGET_BACKENDS_TO_BUILD=Vulkan-SPIRV;VMLA`.
 
 #### `IREE_ENABLE_LLD`:BOOL
 
 Use lld when linking. Defaults to `OFF`. This option is equivalent to
 `-DIREE_USE_LINKER=lld`. The option `IREE_ENABLE_LLD` and `IREE_USE_LINKER` can
 not be set at the same time.
+
+#### `IREE_ENABLE_ASAN`:BOOL
+
+Enable [address sanitizer](https://clang.llvm.org/docs/AddressSanitizer.html)
+if the current build type is Debug and the compiler supports it.
+
+#### `IREE_ENABLE_MSAN`:BOOL
+
+Enable [memory sanitizer](https://clang.llvm.org/docs/MemorySanitizer.html)
+if the current build type is Debug and the compiler supports it.
+
+#### `IREE_ENABLE_TSAN`:BOOL
+
+Enable [thread sanitizer](https://clang.llvm.org/docs/ThreadSanitizer.html)
+if the current build type is Debug and the compiler supports it.
 
 #### `IREE_MLIR_DEP_MODE`:STRING
 
