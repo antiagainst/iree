@@ -18,11 +18,12 @@
 #include "iree/compiler/Dialect/Vulkan/IR/VulkanTypes.h"
 #include "mlir/IR/Attributes.h"
 
+// TableGen'erated attribute declarations
+#include "iree/compiler/Dialect/Vulkan/IR/VulkanAttributes.h.inc"
+
 namespace mlir {
 namespace iree_compiler {
 namespace IREE {
-
-#include "iree/compiler/Dialect/Vulkan/IR/VulkanAttributes.h.inc"
 
 namespace Vulkan {
 

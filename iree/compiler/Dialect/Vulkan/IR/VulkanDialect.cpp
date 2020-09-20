@@ -15,20 +15,47 @@
 #include "iree/compiler/Dialect/Vulkan/IR/VulkanDialect.h"
 
 #include "iree/compiler/Dialect/Vulkan/IR/VulkanAttributes.h"
+#include "iree/compiler/Dialect/Vulkan/IR/VulkanOps.h"
 #include "iree/compiler/Dialect/Vulkan/IR/VulkanTypes.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/SMLoc.h"
+#include "mlir/IR/BlockAndValueMapping.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/DialectImplementation.h"
+#include "mlir/Transforms/InliningUtils.h"
 
 namespace mlir {
 namespace iree_compiler {
 namespace IREE {
 namespace Vulkan {
 
+//===----------------------------------------------------------------------===//
+// Inliner Interface
+//===----------------------------------------------------------------------===//
+
+struct VulkanInlinerInterface : public DialectInlinerInterface {
+  using DialectInlinerInterface::DialectInlinerInterface;
+
+  bool isLegalToInline(Operation *op, Region *dest,
+                       BlockAndValueMapping &) const final {
+    return true;
+  };
+};
+
+//===----------------------------------------------------------------------===//
+// Vulkan Dialect
+//===----------------------------------------------------------------------===//
+
 VulkanDialect::VulkanDialect(MLIRContext *context)
     : Dialect(getDialectNamespace(), context, TypeID::get<VulkanDialect>()) {
   addAttributes<TargetEnvAttr>();
+
+#define GET_OP_LIST
+  addOperations<
+#include "iree/compiler/Dialect/Vulkan/IR/VulkanOps.cpp.inc"
+      >();
+
+  addInterfaces<VulkanInlinerInterface>();
 }
 
 //===----------------------------------------------------------------------===//

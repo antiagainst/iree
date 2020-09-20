@@ -20,12 +20,12 @@
 #include "mlir/IR/Location.h"
 #include "mlir/IR/StandardTypes.h"
 
+// TableGen'erated attribute definitions
+#include "iree/compiler/Dialect/Vulkan/IR/VulkanAttributes.cpp.inc"
+
 namespace mlir {
 namespace iree_compiler {
 namespace IREE {
-
-#include "iree/compiler/Dialect/Vulkan/IR/VulkanAttributes.cpp.inc"
-
 namespace Vulkan {
 
 namespace detail {

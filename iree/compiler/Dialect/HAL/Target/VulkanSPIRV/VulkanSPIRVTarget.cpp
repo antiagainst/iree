@@ -21,6 +21,7 @@
 #include "iree/compiler/Dialect/HAL/Target/TargetRegistry.h"
 #include "iree/compiler/Dialect/Vulkan/IR/VulkanAttributes.h"
 #include "iree/compiler/Dialect/Vulkan/IR/VulkanDialect.h"
+#include "iree/compiler/Dialect/Vulkan/IR/VulkanOps.h"
 #include "iree/compiler/Dialect/Vulkan/Utils/TargetEnvUtils.h"
 #include "iree/schemas/spirv_executable_def_generated.h"
 #include "llvm/ADT/STLExtras.h"
@@ -146,33 +147,45 @@ class VulkanSPIRVTargetBackend : public SPIRVTargetBackend {
     iree::SpirVExecutableDefT spirvExecutableDef;
 
     ModuleOp innerModuleOp = targetOp.getInnerModule();
-    auto spvModuleOp = *innerModuleOp.getOps<spirv::ModuleOp>().begin();
 
-    // The sequencer and runtime use ordinals instead of names. We provide the
-    // list of entry point names here that are then passed in
-    // VkShaderModuleCreateInfo.
-    if (auto scheduleAttr = innerModuleOp.getAttrOfType<ArrayAttr>(
-            iree_compiler::getEntryPointScheduleAttrName())) {
-      // We have multiple entry points in this module. Make sure the order
-      // specified in the schedule attribute is respected.
-      for (Attribute entryPoint : scheduleAttr) {
-        spirvExecutableDef.entry_points.emplace_back(
-            entryPoint.cast<StringAttr>().getValue().str());
-      }
+    auto spvCodeOps = innerModuleOp.getOps<Vulkan::SPIRVCodeOp>();
+    if (!spvCodeOps.empty()) {
+      auto spvCodeOp = *spvCodeOps.begin();
+      auto spvBinary = llvm::to_vector<0>(llvm::map_range(
+          spvCodeOp.spirv_code(), [](const APInt &apInt) -> uint32_t {
+            return static_cast<uint32_t>(apInt.getZExtValue());
+          }));
+      spirvExecutableDef.code = {spvBinary.begin(), spvBinary.end()};
+      spirvExecutableDef.entry_points.push_back(spvCodeOp.entry_point().str());
     } else {
-      spirvExecutableDef.entry_points = populateEntryPointNames(spvModuleOp);
-    }
+      auto spvModuleOp = *innerModuleOp.getOps<spirv::ModuleOp>().begin();
 
-    // Serialize the spirv::ModuleOp into the binary that we will embed in the
-    // final flatbuffer.
-    SmallVector<uint32_t, 256> spvBinary;
-    if (failed(spirv::serialize(spvModuleOp, spvBinary))) {
-      return targetOp.emitError() << "failed to serialize spv.module";
-    }
-    spirvExecutableDef.code = {spvBinary.begin(), spvBinary.end()};
-    if (spirvExecutableDef.code.empty()) {
-      return targetOp.emitError()
-             << "failed to translate and serialize SPIR-V executable";
+      // The sequencer and runtime use ordinals instead of names. We provide the
+      // list of entry point names here that are then passed in
+      // VkShaderModuleCreateInfo.
+      if (auto scheduleAttr = innerModuleOp.getAttrOfType<ArrayAttr>(
+              iree_compiler::getEntryPointScheduleAttrName())) {
+        // We have multiple entry points in this module. Make sure the order
+        // specified in the schedule attribute is respected.
+        for (Attribute entryPoint : scheduleAttr) {
+          spirvExecutableDef.entry_points.emplace_back(
+              entryPoint.cast<StringAttr>().getValue().str());
+        }
+      } else {
+        spirvExecutableDef.entry_points = populateEntryPointNames(spvModuleOp);
+      }
+
+      // Serialize the spirv::ModuleOp into the binary that we will embed in the
+      // final flatbuffer.
+      SmallVector<uint32_t, 0> spvBinary;
+      if (failed(spirv::serialize(spvModuleOp, spvBinary))) {
+        return targetOp.emitError() << "failed to serialize spv.module";
+      }
+      spirvExecutableDef.code = {spvBinary.begin(), spvBinary.end()};
+      if (spirvExecutableDef.code.empty()) {
+        return targetOp.emitError()
+               << "failed to translate and serialize SPIR-V executable";
+      }
     }
 
     // Pack the executable definition and get the bytes with the proper header.

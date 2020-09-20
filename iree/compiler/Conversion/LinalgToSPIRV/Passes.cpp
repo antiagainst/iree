@@ -24,6 +24,7 @@
 #include "iree/compiler/Conversion/HLOToLinalg/Passes.h"
 #include "iree/compiler/Conversion/LinalgToVector/Passes.h"
 #include "iree/compiler/Dialect/Shape/Transforms/Passes.h"
+#include "iree/compiler/Dialect/Vulkan/Transforms/Passes.h"
 #include "llvm/Support/CommandLine.h"
 #include "mlir/Conversion/GPUToSPIRV/ConvertGPUToSPIRV.h"
 #include "mlir/Conversion/SCFToGPU/SCFToGPUPass.h"
@@ -215,6 +216,8 @@ void buildSPIRVTransformPassPipeline(OpPassManager &pm,
   // TODO(antiagainst): re-evaluate the inlining timing.
   //===--------------------------------------------------------------------===//
   pm.addPass(createInlinerPass());
+
+  pm.addPass(IREE::Vulkan::createCompileGLSLKernelsPass());
 
   //===--------------------------------------------------------------------===//
   // Inject shape calculation for output buffers.
