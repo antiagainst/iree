@@ -20,15 +20,20 @@ iree_cc_library(
     IR
   HDRS
     "VulkanAttributes.h"
-    "VulkanAttributes.h.inc"
     "VulkanDialect.h"
-    "VulkanEnums.h.inc"
+    "VulkanOps.h"
     "VulkanTypes.h"
+  TEXTUAL_HDRS
+    "VulkanAttributes.cpp.inc"
+    "VulkanAttributes.h.inc"
+    "VulkanEnums.cpp.inc"
+    "VulkanEnums.h.inc"
+    "VulkanOps.cpp.inc"
+    "VulkanOps.h.inc"
   SRCS
     "VulkanAttributes.cpp"
-    "VulkanAttributes.cpp.inc"
     "VulkanDialect.cpp"
-    "VulkanEnums.cpp.inc"
+    "VulkanOps.cpp"
     "VulkanTypes.cpp"
   DEPS
     LLVMSupport
@@ -56,4 +61,23 @@ iree_tablegen_library(
   OUTS
     -gen-enum-decls VulkanEnums.h.inc
     -gen-enum-defs VulkanEnums.cpp.inc
+)
+
+iree_tablegen_library(
+  NAME
+    VulkanOpsGen
+  TD_FILE
+    "VulkanOps.td"
+  OUTS
+    -gen-op-decls VulkanOps.h.inc
+    -gen-op-defs VulkanOps.cpp.inc
+)
+
+iree_tablegen_doc(
+  NAME
+    VulkanDialectDocGen
+  TD_FILE
+    "VulkanOps.td"
+  OUTS
+    -gen-dialect-doc VulkanDialect.md
 )

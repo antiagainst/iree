@@ -15,6 +15,7 @@
 #include "iree/compiler/Dialect/Vulkan/IR/VulkanDialect.h"
 
 #include "iree/compiler/Dialect/Vulkan/IR/VulkanAttributes.h"
+#include "iree/compiler/Dialect/Vulkan/IR/VulkanOps.h"
 #include "iree/compiler/Dialect/Vulkan/IR/VulkanTypes.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/SMLoc.h"
@@ -29,6 +30,11 @@ namespace Vulkan {
 VulkanDialect::VulkanDialect(MLIRContext *context)
     : Dialect(getDialectNamespace(), context, TypeID::get<VulkanDialect>()) {
   addAttributes<TargetEnvAttr>();
+
+#define GET_OP_LIST
+  addOperations<
+#include "iree/compiler/Dialect/Vulkan/IR/VulkanOps.cpp.inc"
+      >();
 }
 
 //===----------------------------------------------------------------------===//

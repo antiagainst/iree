@@ -29,21 +29,28 @@ cc_library(
     name = "IR",
     srcs = [
         "VulkanAttributes.cpp",
-        "VulkanAttributes.cpp.inc",
         "VulkanDialect.cpp",
-        "VulkanEnums.cpp.inc",
+        "VulkanOps.cpp",
         "VulkanTypes.cpp",
     ],
     hdrs = [
         "VulkanAttributes.h",
-        "VulkanAttributes.h.inc",
         "VulkanDialect.h",
-        "VulkanEnums.h.inc",
+        "VulkanOps.h",
         "VulkanTypes.h",
+    ],
+    textual_hdrs = [
+        "VulkanAttributes.cpp.inc",
+        "VulkanAttributes.h.inc",
+        "VulkanEnums.cpp.inc",
+        "VulkanEnums.h.inc",
+        "VulkanOps.cpp.inc",
+        "VulkanOps.h.inc",
     ],
     deps = [
         ":VulkanAttrsGen",
         ":VulkanEnumsGen",
+        ":VulkanOpsGen",
         "//iree/compiler/Dialect/IREE/IR",
         "@llvm-project//llvm:Support",
         "@llvm-project//mlir:IR",
@@ -76,5 +83,31 @@ gentbl(
     td_srcs = [
         ":td_files",
         "@llvm-project//mlir:OpBaseTdFiles",
+    ],
+)
+
+gentbl(
+    name = "VulkanOpsGen",
+    tbl_outs = [
+        ("-gen-op-decls", "VulkanOps.h.inc"),
+        ("-gen-op-defs", "VulkanOps.cpp.inc"),
+    ],
+    tblgen = "@llvm-project//mlir:mlir-tblgen",
+    td_file = "VulkanOps.td",
+    td_srcs = [
+        ":td_files",
+        "@llvm-project//mlir:OpBaseTdFiles",
+    ],
+)
+
+iree_tablegen_doc(
+    name = "VulkanDialectDocGen",
+    tbl_outs = [
+        ("-gen-dialect-doc", "VulkanDialect.md"),
+    ],
+    tblgen = "@llvm-project//mlir:mlir-tblgen",
+    td_file = "VulkanOps.td",
+    td_srcs = [
+        ":td_files",
     ],
 )
