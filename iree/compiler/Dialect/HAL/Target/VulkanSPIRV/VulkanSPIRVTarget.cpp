@@ -51,7 +51,7 @@ VulkanSPIRVTargetOptions getVulkanSPIRVTargetOptionsFromFlags() {
 
   static llvm::cl::opt<std::string> clVulkanTargetTriple(
       "iree-vulkan-target-triple", llvm::cl::desc("Vulkan target triple"),
-      llvm::cl::init("swiftshader-unknown-unknown"));
+      llvm::cl::init("valhall-g77-unknown-android10"));
 
   static llvm::cl::opt<std::string> clVulkanTargetEnv(
       "iree-vulkan-target-env",

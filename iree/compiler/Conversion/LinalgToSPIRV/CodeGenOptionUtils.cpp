@@ -20,7 +20,7 @@ static llvm::cl::opt<bool> clEnableVectorization(
     "iree-spirv-enable-vectorization",
     llvm::cl::desc(
         "Enable vectorization transformations in SPIR-V code generation"),
-    llvm::cl::init(false));
+    llvm::cl::init(true));
 
 static llvm::cl::list<unsigned> clTileSizes(
     "iree-spirv-tile-size",
