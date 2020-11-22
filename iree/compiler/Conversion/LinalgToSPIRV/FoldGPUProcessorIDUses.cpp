@@ -83,6 +83,12 @@ AffineExpr replaceSymbolWithValue(AffineExpr expr, AffineSymbolExpr dim,
   return expr.replace(dim, cstExpr);
 }
 
+AffineExpr replaceDimensionWithValue(AffineExpr expr, AffineDimExpr dim,
+                                     int64_t value) {
+  auto cstExpr = getAffineConstantExpr(value, expr.getContext());
+  return expr.replace(dim, cstExpr);
+}
+
 /// Converts a dimension string to its corresponding index.
 int dimensionToIndex(StringRef dimension) {
   return StringSwitch<int>(dimension).Case("x", 0).Case("y", 1).Case("z", 2);
@@ -228,6 +234,97 @@ struct FoldAffineMinOverProcessorID : OpRewritePattern<AffineMinOp> {
   }
 };
 
+struct FoldAffineMinOverLoopRange : OpRewritePattern<AffineMinOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(AffineMinOp minOp,
+                                PatternRewriter &rewriter) const override {
+    LLVM_DEBUG(llvm::dbgs() << "inspecting " << minOp << "\n");
+    MLIRContext *context = minOp.getContext();
+    auto dimensions = minOp.getDimOperands();
+    auto symbols = minOp.getSymbolOperands();
+
+    // We expect the affine.min op to only have one dimension operand.
+    if (!llvm::hasSingleElement(dimensions) || !symbols.empty()) {
+      return rewriter.notifyMatchFailure(
+          minOp, "expected to only have one dimension operand");
+    }
+
+    // And the dimension operand should come from a loop induction variable.
+    scf::ForOp forOp = scf::getForInductionVarOwner(dimensions.front());
+    auto dim0 = getAffineDimExpr(0, context).cast<AffineDimExpr>();
+    Optional<int64_t> ub;
+    if (forOp) {
+      IntegerAttr attr;
+      if (matchPattern(forOp.upperBound(), m_Constant(&attr))) {
+        ub = attr.getInt();
+      }
+    }
+    if (!ub) {
+      return rewriter.notifyMatchFailure(
+          minOp, "failed to query processor ID upper bound");
+    }
+    LLVM_DEBUG(llvm::dbgs() << "scf.for loop upper bound: " << *ub << "\n");
+
+    // Look at each result expression. For expressions that are functions of
+    // the input dimension, try to simplify it. We do this by replacing the
+    // dimension with its lower and upper bound. This requires the result
+    // expression to be a linear function of the input dimension.
+    SmallVector<AffineExpr, 4> results;
+    SmallVector<unsigned, 4> cstIndices;
+    for (auto result : minOp.getAffineMap().getResults()) {
+      if (auto cstResult = result.dyn_cast<AffineConstantExpr>()) {
+        results.push_back(cstResult);
+        cstIndices.push_back(results.size() - 1);
+      } else if (isLinearExpr(result)) {
+        results.push_back(simplifyAffineExpr(
+            replaceDimensionWithValue(result, dim0, 0), 1, 0));
+        results.push_back(simplifyAffineExpr(
+            replaceDimensionWithValue(result, dim0, *ub - 1), 1, 0));
+        LLVM_DEBUG({
+          auto map = AffineMap::get(1, 0, results, context);
+          llvm::dbgs() << "map after substituting with processor ID bounds: "
+                       << map << "\n";
+        });
+      } else {
+        // We cannot handle such cases. Just bail out on matching the pattern.
+        return rewriter.notifyMatchFailure(
+            minOp, "expected to have a linear function of the dimension");
+      }
+    }
+
+    // Returns true if the given affine expression is a non-negative constant.
+    auto isNonNegativeCstExpr = [](AffineExpr e) {
+      if (auto cst = e.dyn_cast<AffineConstantExpr>())
+        return cst.getValue() >= 0;
+      return false;
+    };
+
+    // Check whether any of the original constant expressions, when subtracted
+    // from all other expressions, produces only >= 0 constants. If so, it is
+    // the min.
+    for (auto cstIndex : cstIndices) {
+      auto candidate = results[cstIndex].cast<AffineConstantExpr>();
+
+      SmallVector<AffineExpr, 4> subExprs;
+      subExprs.reserve(results.size());
+      for (auto r : results) subExprs.push_back(r - candidate);
+
+      AffineMap subMap =
+          simplifyAffineMap(AffineMap::get(0, 1, subExprs, context));
+      LLVM_DEBUG(llvm::dbgs() << "map by subtracting expr '" << candidate
+                              << "': " << subMap << "\n");
+      if (llvm::all_of(subMap.getResults(), isNonNegativeCstExpr)) {
+        rewriter.replaceOpWithNewOp<ConstantIndexOp>(minOp,
+                                                     candidate.getValue());
+        return success();
+      }
+    }
+
+    return failure();
+  }
+};
+
 /// Tests processor ID use folding patterns.
 struct FoldGPUProcessIDUsesPass
     : public PassWrapper<FoldGPUProcessIDUsesPass, FunctionPass> {
@@ -250,6 +347,12 @@ struct FoldGPUProcessIDUsesPass
 void populateFoldGPUProcessorIDUsesPatterns(
     MLIRContext *context, OwningRewritePatternList &patterns) {
   patterns.insert<FoldAffineMinOverProcessorID>(context);
+  AffineMinOp::getCanonicalizationPatterns(patterns, context);
+}
+
+void populateFoldLoopInductionVariableUsesPatterns(
+    MLIRContext *context, OwningRewritePatternList &patterns) {
+  patterns.insert<FoldAffineMinOverLoopRange>(context);
   AffineMinOp::getCanonicalizationPatterns(patterns, context);
 }
 

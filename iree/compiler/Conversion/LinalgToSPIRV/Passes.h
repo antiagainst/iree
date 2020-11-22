@@ -97,6 +97,9 @@ void populateLinalgTileAndDistributePatterns(
 void populateFoldGPUProcessorIDUsesPatterns(MLIRContext *context,
                                             OwningRewritePatternList &patterns);
 
+void populateFoldLoopInductionVariableUsesPatterns(
+    MLIRContext *context, OwningRewritePatternList &patterns);
+
 }  // namespace iree_compiler
 }  // namespace mlir
 
