@@ -14,21 +14,31 @@
 
 #include "iree/compiler/Dialect/IREE/IR/IREEDialect.h"
 
+#include "iree/compiler/Dialect/IREE/IR/IREEAttributes.h"
 #include "iree/compiler/Dialect/IREE/IR/IREEOps.h"
 #include "iree/compiler/Dialect/IREE/IR/IREETypes.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/SourceMgr.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/DialectImplementation.h"
 #include "mlir/IR/OpDefinition.h"
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/Parser.h"
+#include "mlir/Support/LLVM.h"
 
 namespace mlir {
 namespace iree_compiler {
 
 IREEDialect::IREEDialect(MLIRContext* context)
     : Dialect(getDialectNamespace(), context, TypeID::get<IREEDialect>()) {
+  addAttributes<
+      IREE::CodeGen::ActionDistributeAttr, IREE::CodeGen::ActionTileAttr,
+      IREE::CodeGen::ActionVectorizeAttr, IREE::CodeGen::OpChoiceAttr,
+      IREE::CodeGen::OpFilterAttr, IREE::CodeGen::OpPolicyAttr,
+      IREE::CodeGen::TargetChoiceAttr, IREE::CodeGen::TargetPolicyAttr,
+      IREE::CodeGen::TypeFilterAttr>();
+
   addTypes<IREE::ByteBufferType, IREE::ListType, IREE::MutableByteBufferType,
            IREE::PtrType>();
 #define GET_OP_LIST
@@ -36,6 +46,10 @@ IREEDialect::IREEDialect(MLIRContext* context)
 #include "iree/compiler/Dialect/IREE/IR/IREEOps.cpp.inc"
       >();
 }
+
+//===----------------------------------------------------------------------===//
+// Type Parsing/Printing
+//===----------------------------------------------------------------------===//
 
 Type IREEDialect::parseType(DialectAsmParser& parser) const {
   Location loc = parser.getEncodedSourceLoc(parser.getNameLoc());
@@ -89,6 +103,52 @@ void IREEDialect::printType(Type type, DialectAsmPrinter& os) const {
   } else {
     llvm_unreachable("unhandled IREE type");
   }
+}
+
+//===----------------------------------------------------------------------===//
+// Attribute Parsing/Printing
+//===----------------------------------------------------------------------===//
+//
+Attribute IREEDialect::parseAttribute(DialectAsmParser& parser,
+                                      Type type) const {
+  using namespace IREE::CodeGen;
+
+  StringRef attrKind;
+  if (failed(parser.parseKeyword(&attrKind))) return {};
+  if (attrKind == ActionDistributeAttr::getKindName()) {
+    return ActionDistributeAttr::parse(parser);
+  } else if (attrKind == ActionTileAttr::getKindName()) {
+    return ActionTileAttr::parse(parser);
+  } else if (attrKind == ActionVectorizeAttr::getKindName()) {
+    return ActionVectorizeAttr::parse(parser);
+  } else if (attrKind == OpChoiceAttr::getKindName()) {
+    return OpChoiceAttr::parse(parser);
+  } else if (attrKind == OpFilterAttr::getKindName()) {
+    return OpFilterAttr::parse(parser);
+  } else if (attrKind == OpPolicyAttr::getKindName()) {
+    return OpPolicyAttr::parse(parser);
+  } else if (attrKind == TargetChoiceAttr::getKindName()) {
+    return TargetChoiceAttr::parse(parser);
+  } else if (attrKind == TargetPolicyAttr::getKindName()) {
+    return TargetPolicyAttr::parse(parser);
+  } else if (attrKind == TypeFilterAttr::getKindName()) {
+    return TypeFilterAttr::parse(parser);
+  }
+  parser.emitError(parser.getNameLoc())
+      << "unknown IREE attribute: " << attrKind;
+  return {};
+}
+
+void IREEDialect::printAttribute(Attribute attr, DialectAsmPrinter& p) const {
+  using namespace IREE::CodeGen;
+
+  TypeSwitch<Attribute>(attr)
+      .Case<ActionDistributeAttr, ActionTileAttr, ActionVectorizeAttr,
+            OpChoiceAttr, OpFilterAttr, OpPolicyAttr, TargetChoiceAttr,
+            TargetPolicyAttr, TypeFilterAttr>(
+          [&](auto typedAttr) { typedAttr.print(p); })
+      .Default(
+          [](Attribute) { llvm_unreachable("unhandled IREE attribute kind"); });
 }
 
 }  // namespace iree_compiler

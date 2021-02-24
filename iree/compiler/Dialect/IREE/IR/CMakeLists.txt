@@ -19,12 +19,18 @@ iree_cc_library(
   NAME
     IR
   HDRS
+    "IREEAttributes.h"
+    "IREECodeGenAttributes.h.inc"
+    "IREECodeGenEnums.h.inc"
     "IREEDialect.h"
     "IREEOps.h"
     "IREEOps.h.inc"
     "IREETraits.h"
     "IREETypes.h"
   SRCS
+    "IREEAttributes.cpp"
+    "IREECodeGenAttributes.cpp.inc"
+    "IREECodeGenEnums.cpp.inc"
     "IREEDialect.cpp"
     "IREEOps.cpp"
     "IREEOps.cpp.inc"
@@ -37,6 +43,28 @@ iree_cc_library(
     MLIRStandard
     MLIRSupport
   PUBLIC
+)
+
+iree_tablegen_library(
+  NAME
+    IREECodeGenAttrsGen
+  TD_FILE
+    "IREECodeGenAttributes.td"
+  OUTS
+    -gen-iree-struct-attr-decls IREECodeGenAttributes.h.inc
+    -gen-iree-struct-attr-defs IREECodeGenAttributes.cpp.inc
+  TBLGEN
+    IREE
+)
+
+iree_tablegen_library(
+  NAME
+    IREECodeGenEnumsGen
+  TD_FILE
+    "IREECodeGenAttributes.td"
+  OUTS
+    -gen-enum-decls IREECodeGenEnums.h.inc
+    -gen-enum-defs IREECodeGenEnums.cpp.inc
 )
 
 iree_tablegen_library(

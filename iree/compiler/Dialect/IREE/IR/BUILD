@@ -31,12 +31,18 @@ filegroup(
 cc_library(
     name = "IR",
     srcs = [
+        "IREEAttributes.cpp",
+        "IREECodeGenAttributes.cpp.inc",
+        "IREECodeGenEnums.cpp.inc",
         "IREEDialect.cpp",
         "IREEOps.cpp",
         "IREEOps.cpp.inc",
         "IREETypes.cpp",
     ],
     hdrs = [
+        "IREEAttributes.h",
+        "IREECodeGenAttributes.h.inc",
+        "IREECodeGenEnums.h.inc",
         "IREEDialect.h",
         "IREEOps.h",
         "IREEOps.h.inc",
@@ -44,6 +50,8 @@ cc_library(
         "IREETypes.h",
     ],
     deps = [
+        ":IREECodeGenAttrsGen",
+        ":IREECodeGenEnumsGen",
         ":IREEOpsGen",
         "@llvm-project//llvm:Support",
         "@llvm-project//mlir:IR",
@@ -51,6 +59,34 @@ cc_library(
         "@llvm-project//mlir:SideEffects",
         "@llvm-project//mlir:StandardOps",
         "@llvm-project//mlir:Support",
+    ],
+)
+
+gentbl(
+    name = "IREECodeGenAttrsGen",
+    tbl_outs = [
+        ("-gen-iree-struct-attr-decls", "IREECodeGenAttributes.h.inc"),
+        ("-gen-iree-struct-attr-defs", "IREECodeGenAttributes.cpp.inc"),
+    ],
+    tblgen = "//iree/tools:iree-tblgen",
+    td_file = "IREECodeGenAttributes.td",
+    td_srcs = [
+        ":td_files",
+        "@llvm-project//mlir:OpBaseTdFiles",
+    ],
+)
+
+gentbl(
+    name = "IREECodeGenEnumsGen",
+    tbl_outs = [
+        ("-gen-enum-decls", "IREECodeGenEnums.h.inc"),
+        ("-gen-enum-defs", "IREECodeGenEnums.cpp.inc"),
+    ],
+    tblgen = "@llvm-project//mlir:mlir-tblgen",
+    td_file = "IREECodeGenAttributes.td",
+    td_srcs = [
+        ":td_files",
+        "@llvm-project//mlir:OpBaseTdFiles",
     ],
 )
 
