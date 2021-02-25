@@ -21,6 +21,7 @@
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/SourceMgr.h"
 #include "mlir/IR/Attributes.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/DialectImplementation.h"
 #include "mlir/IR/OpDefinition.h"
 #include "mlir/IR/OpImplementation.h"
@@ -46,6 +47,12 @@ IREEDialect::IREEDialect(MLIRContext* context)
 #include "iree/compiler/Dialect/IREE/IR/IREEOps.cpp.inc"
       >();
 }
+
+StringRef IREEDialect::getCodeGenTargetPolicyAttrName() {
+  return "codegen.target.policy";
+}
+
+StringRef IREEDialect::getCodeGenActionsAttrName() { return "codegen.actions"; }
 
 //===----------------------------------------------------------------------===//
 // Type Parsing/Printing
@@ -149,6 +156,36 @@ void IREEDialect::printAttribute(Attribute attr, DialectAsmPrinter& p) const {
           [&](auto typedAttr) { typedAttr.print(p); })
       .Default(
           [](Attribute) { llvm_unreachable("unhandled IREE attribute kind"); });
+}
+
+//===----------------------------------------------------------------------===//
+// Operation Attribute Verification
+//===----------------------------------------------------------------------===//
+
+LogicalResult IREEDialect::verifyOperationAttribute(Operation* op,
+                                                    NamedAttribute attribute) {
+  StringRef symbol = attribute.first.strref();
+  Attribute attr = attribute.second;
+
+  if (symbol == getCodeGenActionsAttrName()) {
+    auto actions = attr.dyn_cast<ArrayAttr>();
+    auto isCodeGenActionAttr = [](Attribute action) {
+      return action.isa<IREE::CodeGen::ActionDistributeAttr,
+                        IREE::CodeGen::ActionTileAttr,
+                        IREE::CodeGen::ActionVectorizeAttr>();
+    };
+    if (!actions || !llvm::all_of(actions, isCodeGenActionAttr)) {
+      return op->emitError("'")
+             << symbol << "' must be an #iree.codegen.action array attribute";
+    }
+  } else if (symbol == getCodeGenTargetPolicyAttrName()) {
+    if (attr.isa<IREE::CodeGen::TargetPolicyAttr>()) {
+      return op->emitError("'")
+             << symbol
+             << "' must be an #iree.codegen.target.policy array attribute";
+    }
+  }
+  return success();
 }
 
 }  // namespace iree_compiler

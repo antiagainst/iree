@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include "iree/compiler/Dialect/IREE/IR/IREEAttributes.h"
 #include "mlir/Dialect/Linalg/Transforms/Transforms.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
@@ -64,6 +65,15 @@ std::unique_ptr<OperationPass<>> createRemoveDeadMemAllocsPass();
 
 /// Pass to optimize vector transfer_read and transfer_write.
 std::unique_ptr<FunctionPass> createVectorTransferOptimizationPass();
+
+using TargetFilterCallBackFnType =
+    std::function<bool(llvm::StringRef key, Attribute value)>;
+
+llvm::StringRef getCodeGenActionAttrName();
+
+std::unique_ptr<FunctionPass> createAnnotateCodeGenActionPass(
+    IREE::CodeGen::TargetPolicyAttr targetPolicy,
+    TargetFilterCallBackFnType targetFilter);
 
 }  // namespace iree_compiler
 }  // namespace mlir

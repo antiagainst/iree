@@ -29,6 +29,8 @@ def IREE_Dialect : Dialect {
   let summary = [{
     A dialect used for types common across IREE subdialects.
   }];
+
+  let hasOperationAttrVerify = 1;
 }
 
 //===----------------------------------------------------------------------===//

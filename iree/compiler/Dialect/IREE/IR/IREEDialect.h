@@ -26,6 +26,9 @@ class IREEDialect : public Dialect {
   explicit IREEDialect(MLIRContext* context);
   static StringRef getDialectNamespace() { return "iree"; }
 
+  static StringRef getCodeGenTargetPolicyAttrName();
+  static StringRef getCodeGenActionsAttrName();
+
   /// Parses an attribute registered to this dialect.
   Attribute parseAttribute(DialectAsmParser& parser, Type type) const override;
 
@@ -37,6 +40,9 @@ class IREEDialect : public Dialect {
 
   /// Prints a type registered to this dialect.
   void printType(Type type, DialectAsmPrinter& os) const override;
+
+  LogicalResult verifyOperationAttribute(Operation* op,
+                                         NamedAttribute attribute) override;
 };
 
 }  // namespace iree_compiler

@@ -36,6 +36,7 @@ inline void registerCommonConversionPasses() {
     // Common
     createLinalgBufferizePass();
     createLinalgRewriteDestructiveUpdatesPass();
+    createAnnotateCodeGenActionPass(nullptr, nullptr);
     return true;
   }();
   (void)init_once;
