@@ -1896,6 +1896,8 @@ def HAL_ExecutableEntryPointOp : HAL_Op<"executable.entry_point", [
     HAL_OrdinalAttr:$ordinal,
     FlatSymbolRefAttr:$interface,
     TypeAttr:$signature,
+    IndexAttr:$workload_rank,
+    OptionalAttr<I64ArrayAttr>:$num_workgroups,
     OptionalAttr<HAL_WorkgroupSizeAttr>:$workgroup_size
   );
 
@@ -1905,15 +1907,20 @@ def HAL_ExecutableEntryPointOp : HAL_Op<"executable.entry_point", [
     OpBuilderDAG<
       (ins "::llvm::StringRef":$sym_name, "::llvm::APInt":$ordinal,
         "::llvm::StringRef":$interface,"::mlir::Type":$signature,
-        "::mlir::ArrayAttr":$workgroup_size),
+        "::mlir::APInt":$workload_rank,
+        "::mlir::ArrayAttr":$num_workgroups,
+        "::mlir::ArrayAttr":$workgroup_size
+        ),
        [{build($_builder, $_state, sym_name, ordinal, interface, signature,
-            workgroup_size, 0);}]>,
+               workload_rank, num_workgroups, workgroup_size, 0);}]>,
     OpBuilderDAG<
       (ins "::mlir::StringAttr":$sym_name, "::mlir::IntegerAttr":$ordinal,
         "::mlir::FlatSymbolRefAttr":$interface, "::mlir::TypeAttr":$signature,
+        "::mlir::IntegerAttr":$workload_rank,
+        "::mlir::ArrayAttr":$num_workgroups,
         "::mlir::ArrayAttr":$workgroup_size),
       [{build($_builder, $_state, sym_name, ordinal, interface, signature,
-          workgroup_size, 0);}]>
+              workload_rank, num_workgroups, workgroup_size, 0);}]>
   ];
 
   let verifier = [{ return verifyExecutableEntryPointOp(*this); }];

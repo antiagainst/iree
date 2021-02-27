@@ -1323,12 +1323,6 @@ static LogicalResult verifyExecutableEntryPointOp(ExecutableEntryPointOp op) {
   if (!llvm::hasSingleElement(*region)) {
     return op.emitOpError() << "expected a single region";
   }
-  if (region->getNumArguments() != 3) {
-    return op.emitOpError(
-        "expected three arguments for workgroup_count_region for workload "
-        "along "
-        "x, y, and z");
-  }
   for (BlockArgument &blockArg : region->getArguments()) {
     if (!blockArg.getType().isa<IndexType>()) {
       return op.emitOpError(

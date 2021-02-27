@@ -69,7 +69,7 @@ LogicalResult SPIRVTargetBackend::recordDispatch(
   // in the flow dialect we don't even really need the ability to override
   // dispatch recording at all - just a way to allow targets to map workgroup
   // counts from the N-dimensional flow workgroup counts to the 3D hal counts.
-  if (dispatchState.workgroupCount.size() == 3) {
+  if (dispatchState.workgroupCount.size() >= 3) {
     return TargetBackend::recordDispatch(loc, dispatchState, switchRewriter);
   }
 

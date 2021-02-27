@@ -97,7 +97,7 @@ void MaterializeCPULaunchConfigurationPass::runOnOperation() {
       // By default just set the number of workgroups to be {1, 1, 1}.
       WorkgroupCountRegionBuilder regionBuilder =
           [](OpBuilder &b, Location loc,
-             std::array<Value, 3> workload) -> std::array<Value, 3> {
+             SmallVector<Value, 3> workload) -> std::array<Value, 3> {
         Value one = b.create<ConstantIndexOp>(loc, 1);
         return {one, one, one};
       };

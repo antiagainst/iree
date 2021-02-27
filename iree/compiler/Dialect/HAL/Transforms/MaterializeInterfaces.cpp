@@ -362,7 +362,8 @@ static LogicalResult declareEntryPointOps(
             builder.getStringAttr(dispatchEntryOp.function_ref()),
             builder.getI32IntegerAttr(nextOrdinal++),
             builder.getSymbolRefAttr(interfaceOp),
-            TypeAttr::get(sourceFuncOp.getType()), ArrayAttr{});
+            TypeAttr::get(sourceFuncOp.getType()),
+            dispatchEntryOp.workgroup_rankAttr(), ArrayAttr{}, ArrayAttr{});
       }
     }
 
@@ -423,24 +424,6 @@ static LogicalResult declareTargetOps(TargetOptions targetOptions,
   return success();
 }
 
-namespace {
-
-template <typename SrcOp, typename DstOp>
-class ConverterDispatchWorkgroupInfoPattern final
-    : public OpRewritePattern<SrcOp> {
- public:
-  using OpRewritePattern<SrcOp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(SrcOp op,
-                                PatternRewriter &rewriter) const override {
-    rewriter.replaceOpWithNewOp<DstOp>(op, op.getResult().getType(),
-                                       op.dimensionAttr());
-    return success();
-  }
-};
-
-}  // namespace
-
 class MaterializeInterfacesPass
     : public PassWrapper<MaterializeInterfacesPass, OperationPass<ModuleOp>> {
  public:
@@ -485,23 +468,6 @@ class MaterializeInterfacesPass
       // TODO(benvanik): allow entry points to use different interfaces.
       if (failed(declareEntryPointOps(sourceOp, executableOp,
                                       interfaceOp.getValue()))) {
-        return signalPassFailure();
-      }
-
-      // Convert interface-related flow.dispatch.* ops to their hal.* versions.
-      OwningRewritePatternList patterns;
-      patterns.insert<ConverterDispatchWorkgroupInfoPattern<
-                          IREE::Flow::DispatchWorkgroupIDOp,
-                          IREE::HAL::InterfaceWorkgroupIDOp>,
-                      ConverterDispatchWorkgroupInfoPattern<
-                          IREE::Flow::DispatchWorkgroupCountOp,
-                          IREE::HAL::InterfaceWorkgroupCountOp>,
-                      ConverterDispatchWorkgroupInfoPattern<
-                          IREE::Flow::DispatchWorkgroupSizeOp,
-                          IREE::HAL::InterfaceWorkgroupSizeOp>>(
-          executableOp.getContext());
-      if (failed(applyPatternsAndFoldGreedily(executableOp,
-                                              std::move(patterns)))) {
         return signalPassFailure();
       }
 

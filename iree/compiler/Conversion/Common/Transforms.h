@@ -68,7 +68,7 @@ LogicalResult getLinalgOps(FuncOp funcOp,
 /// callback function, which computes the workgroup count (x,y,z) given the
 /// workload along (x,y,z).
 using WorkgroupCountRegionBuilder = std::function<std::array<Value, 3>(
-    OpBuilder &b, Location loc, std::array<Value, 3> workload)>;
+    OpBuilder &b, Location loc, SmallVector<Value, 3> workload)>;
 LogicalResult defineWorkgroupCountRegion(
     OpBuilder &builder, FuncOp funcOp,
     WorkgroupCountRegionBuilder regionBuilder);

@@ -354,14 +354,33 @@ template <typename ConvOpTy>
 static LogicalResult getMaliSpecificConfig(ConvOpTy op,
                                            TileSizesListType &tileSizes,
                                            LaunchConfigInfo &config) {
-  auto inputType = op.getInput(1).getType().template cast<MemRefType>();
-  auto outputType = op.getOutputBufferTypes()[0].template cast<MemRefType>();
-  if (!inputType.hasStaticShape() || !outputType.hasStaticShape())
-    return failure();
-  // Only support NHWC conv.
-  if (!isa<linalg::ConvInputNHWCFilterHWCFOp>(op.getOperation())) {
+  Operation *operation = op.getOperation();
+  if (!isa<linalg::ConvInputNHWCFilterHWCFOp>(operation)) {
     return failure();
   }
+
+  // XXX: Hack to get the original shape information to decide settings..
+  ShapedType inputType, outputType;
+  if (auto outputTypeAttr = operation->getAttrOfType<ArrayAttr>(
+          "iree.codegen.distribution.original_result_types")) {
+    inputType = operation
+                    ->getAttrOfType<ArrayAttr>(
+                        "iree.codegen.distribution.original_operand_types")
+                    .getValue()[0]
+                    .template cast<TypeAttr>()
+                    .getValue()
+                    .template cast<ShapedType>();
+    outputType = outputTypeAttr.getValue()[0]
+                     .template cast<TypeAttr>()
+                     .getValue()
+                     .template cast<ShapedType>();
+  } else {
+    inputType = op.getInput(0).getType().template cast<ShapedType>();
+    outputType = op.getOutputBufferTypes()[0].template cast<ShapedType>();
+  }
+
+  if (!inputType.hasStaticShape() || !outputType.hasStaticShape())
+    return failure();
 
   bool isInputTilable =
       inputType.getDimSize(3) % 4 == 0 || inputType.getDimSize(3) < 4;

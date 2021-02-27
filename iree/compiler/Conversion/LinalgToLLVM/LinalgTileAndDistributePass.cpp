@@ -157,7 +157,7 @@ void LinalgTileAndDistributePass::runOnOperation() {
       if (failed(defineWorkgroupCountRegion(
               builder, funcOp,
               [](OpBuilder &b, Location loc,
-                 std::array<Value, 3> workload) -> std::array<Value, 3> {
+                 SmallVector<Value, 3> workload) -> std::array<Value, 3> {
                 Value one = b.create<ConstantIndexOp>(loc, 1);
                 return {one, one, one};
               }))) {

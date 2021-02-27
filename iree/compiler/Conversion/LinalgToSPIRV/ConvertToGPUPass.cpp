@@ -688,7 +688,7 @@ struct MapLinalgOpToGlobalInvocationId
       WorkgroupCountRegionBuilder regionBuilder =
           [&workgroupSize](
               OpBuilder &b, Location loc,
-              std::array<Value, 3> workload) -> std::array<Value, 3> {
+              SmallVector<Value, 3> workload) -> std::array<Value, 3> {
         Value one = b.create<ConstantIndexOp>(loc, 1);
         return {getWorkgroupCountX(b, loc, workload, workgroupSize[0]), one,
                 one};
@@ -713,7 +713,7 @@ struct MapLinalgOpToGlobalInvocationId
       WorkgroupCountRegionBuilder regionBuilder =
           [&parallelLoopRange, &workgroupSize](
               OpBuilder &b, Location loc,
-              std::array<Value, 3> workload) -> std::array<Value, 3> {
+              SmallVector<Value, 3> workload) -> std::array<Value, 3> {
         Value one = b.create<ConstantIndexOp>(loc, 1);
         auto values = llvm::to_vector<4>(
             llvm::map_range(parallelLoopRange, [&](int64_t dim) -> Value {

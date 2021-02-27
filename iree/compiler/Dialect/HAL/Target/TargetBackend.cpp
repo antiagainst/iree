@@ -194,7 +194,8 @@ LogicalResult TargetBackend::linkExecutablesInto(
                 entryPointOp.getLoc(), entryPointOp.sym_nameAttr(),
                 builder.getI32IntegerAttr(nextEntryPointOrdinal++),
                 builder.getSymbolRefAttr(linkedInterfaceOp.getName()),
-                entryPointOp.signatureAttr(), ArrayAttr{});
+                entryPointOp.signatureAttr(), entryPointOp.workload_rankAttr(),
+                entryPointOp.num_workgroupsAttr(), ArrayAttr{});
 
         // Add to replacement table for fixing up dispatch calls referencing
         // this entry point.

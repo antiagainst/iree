@@ -81,6 +81,9 @@ createFoldProcessorIDUsesPass();
 std::unique_ptr<OperationPass<IREE::HAL::ExecutableTargetOp>>
 createMaterializeEntryPointsPass();
 
+std::unique_ptr<OperationPass<IREE::HAL::ExecutableTargetOp>>
+createConcretizeWorkloadOpsPass();
+
 //===----------------------------------------------------------------------===//
 // Pipelines
 //===----------------------------------------------------------------------===//

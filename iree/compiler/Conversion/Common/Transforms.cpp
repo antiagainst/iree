@@ -196,7 +196,7 @@ static Optional<linalg::TiledAndFusedLinalgOps> tileAndFuseLinalgOps(
   WorkgroupCountRegionBuilder regionBuilder =
       [&tileSizes, &tiledAndFusedOps, &staticLoopRange](
           OpBuilder &b, Location loc,
-          std::array<Value, 3> workload) -> std::array<Value, 3> {
+          SmallVector<Value, 3> workload) -> std::array<Value, 3> {
     Value one = b.create<ConstantIndexOp>(loc, 1);
     SmallVector<Value, 4> workgroupCounts;
     for (auto size : enumerate(tileSizes)) {
@@ -327,14 +327,16 @@ LogicalResult defineWorkgroupCountRegion(
   auto clonedOp = builder.create<IREE::HAL::ExecutableEntryPointOp>(
       loc, entryPointOp.sym_nameAttr(), entryPointOp.ordinalAttr(),
       entryPointOp.interfaceAttr(), entryPointOp.signatureAttr(),
+      entryPointOp.workload_rankAttr(), entryPointOp.num_workgroupsAttr(),
       entryPointOp.workgroup_sizeAttr(), 1);
   Region *region = clonedOp.getBody();
   Block *entryBlock = builder.createBlock(region);
   // Add 3 index arguments for the workload.
   auto indexType = builder.getIndexType();
-  std::array<Value, 3> workload = {entryBlock->addArgument(indexType),
-                                   entryBlock->addArgument(indexType),
-                                   entryBlock->addArgument(indexType)};
+  SmallVector<Value, 3> workload;
+  for (unsigned i = 0; i < entryPointOp.workload_rankAttr().getInt(); ++i) {
+    workload.push_back(entryBlock->addArgument(indexType));
+  }
   std::array<Value, 3> workgroupCount = regionBuilder(builder, loc, workload);
   builder.create<IREE::HAL::ReturnOp>(loc, workgroupCount);
   entryPointOp.erase();
@@ -349,12 +351,25 @@ LogicalResult materializeStaticLaunchInformation(
   if (failed(applyPatternsAndFoldGreedily(funcOp, std::move(patterns)))) {
     return failure();
   }
+
+  if (workloadPerWorkgroup.size() > 3) {
+    LLVM_DEBUG({
+      llvm::dbgs() << "workload per workgroup: [";
+      llvm::interleaveComma(workloadPerWorkgroup, llvm::dbgs());
+      llvm::dbgs() << "]\n";
+    });
+    // For now, only allow the case where we have a bunch of not-to-be-tiled
+    // trailing dimensions.
+    while (!workloadPerWorkgroup.empty() && workloadPerWorkgroup.back() == 0)
+      workloadPerWorkgroup = workloadPerWorkgroup.drop_back();
+  }
+
   assert(workloadPerWorkgroup.size() <= 3 &&
          "workloadPerWorkgroup size greater than 3 not handled");
   WorkgroupCountRegionBuilder regionBuilder =
       [&workloadPerWorkgroup](
           OpBuilder &b, Location loc,
-          std::array<Value, 3> workload) -> std::array<Value, 3> {
+          SmallVector<Value, 3> workload) -> std::array<Value, 3> {
     Value one = b.create<ConstantIndexOp>(loc, 1);
     std::array<Value, 3> returnValues = {one, one, one};
     for (auto ts : llvm::enumerate(workloadPerWorkgroup)) {
