@@ -20,6 +20,8 @@
 //===----------------------------------------------------------------------===//
 
 #include "iree/compiler/Conversion/Common/Passes.h"
+#include "mlir/Dialect/Linalg/IR/LinalgOps.h"
+#include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -44,11 +46,58 @@ struct RemoveDeadMemAllocs : RewritePattern {
   }
 };
 
+/// Elides allocations that are only used for initializing other buffers.
+///
+/// For example, the following pattern:
+///
+///   %alloc = alloc() : memref<1x225x225x3xf32>
+///   linalg.fill(%alloc, %cst) : memref<1x225x225x3xf32>, f32
+///   linalg.copy(%alloc, %buffer)
+///
+/// Can be turned into:
+///
+///   linalg.fill(%buffer, %cst) : memref<1x225x225x3xf32>, f32
+struct ElideTransientAllocs : OpRewritePattern<linalg::CopyOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(linalg::CopyOp copyOp,
+                                PatternRewriter &rewriter) const override {
+    auto allocOp = copyOp.getSource().getDefiningOp<AllocOp>();
+    if (!allocOp) return failure();
+
+    auto bufferUsers = allocOp->getUsers();
+    auto bufferUser = bufferUsers.begin();
+    if (llvm::hasSingleElement(bufferUsers) ||
+        std::next(bufferUser, 2) != bufferUsers.end()) {
+      return failure();
+    }
+
+    auto fillOp = dyn_cast<linalg::FillOp>(*bufferUser);
+    if (!fillOp) fillOp = dyn_cast<linalg::FillOp>(*std::next(bufferUser));
+    if (!fillOp) return failure();
+
+    Block *fillBlock = fillOp->getBlock();
+    Block *copyBlock = copyOp->getBlock();
+
+    if (fillBlock != copyBlock || !fillOp->isBeforeInBlock(copyOp)) {
+      return failure();
+    }
+
+    rewriter.replaceOpWithNewOp<linalg::FillOp>(copyOp, copyOp.getTarget(),
+                                                fillOp.value());
+    rewriter.eraseOp(fillOp);
+    rewriter.eraseOp(allocOp);
+
+    return success();
+  }
+};
+
 struct RemoveDeadMemAllocsPass
     : public PassWrapper<RemoveDeadMemAllocsPass, OperationPass<>> {
   void runOnOperation() override {
     OwningRewritePatternList patterns;
     patterns.insert<RemoveDeadMemAllocs>();
+    patterns.insert<ElideTransientAllocs>(&getContext());
     (void)applyPatternsAndFoldGreedily(getOperation(), std::move(patterns));
   }
 };
