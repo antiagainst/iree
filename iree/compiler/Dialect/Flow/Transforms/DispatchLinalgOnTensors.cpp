@@ -20,6 +20,7 @@
 #include "iree/compiler/Dialect/Shape/IR/ShapeDialect.h"
 #include "iree/compiler/Dialect/Shape/IR/ShapeOps.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/Support/Debug.h"
 #include "mlir/Dialect/Linalg/IR/LinalgOps.h"
 #include "mlir/Dialect/Linalg/Transforms/Transforms.h"
 #include "mlir/Dialect/SCF/SCF.h"
@@ -32,6 +33,7 @@
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/TypeRange.h"
+#include "mlir/IR/UseDefLists.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Support/LLVM.h"
@@ -188,7 +190,7 @@ static bool isRootOp(Operation *op) {
     }
   }
   return isa<linalg::ConvInputNHWCFilterHWCFOp,
-             linalg::DepthwiseConvInputNHWCFilterHWCOp>(op);
+             linalg::DepthwiseConvInputNHWCFilterHWCOp, linalg::GenericOp>(op);
 }
 
 static bool isAlwaysClonedIntoDispatchOp(Operation *op) {
@@ -300,6 +302,7 @@ static void pullInProducersInSameGroup(
       // TODO: this is incorrect on general pattern failures, try pattern within
       // pattern.
       OpResult opResult = en.value().cast<OpResult>();
+      LLVM_DEBUG(llvm::dbgs() << "\n>>> dispatch op before fusion: " << dispatchOp << "\n");
       auto maybeFusionInfo = linalg::fuseProducerOfTensor(
           rewriter, clonedOpToFuse->getResult(opResult.getResultNumber()),
           tiledLinalgOp.op.getShapedOpOperand(en.index()));
@@ -792,22 +795,35 @@ struct MakeDispatchWorkgroupsOp : public RewritePattern {
 static bool isProducerFusableWithConsumer(linalg::LinalgOp producer,
                                           linalg::LinalgOp consumer) {
   if (clLinalgOnTensorsEnableForceFusion) return true;
-  // Fuse if the dependence from producer to consumer is to the `outs` operand
-  // of the consumer and the producer is a parallel operation
+
   llvm::DenseSet<Value> producerResults(producer.getOperation()->result_begin(),
                                         producer.getOperation()->result_end());
+
   auto isProducerResultValue = [&producerResults](OpOperand &operand) -> bool {
     return producerResults.count(operand.get());
   };
+
   auto isElementWiseParallelOp = [](linalg::LinalgOp op) -> bool {
     return llvm::all_of(op.iterator_types(), [](Attribute attr) {
       return attr.cast<StringAttr>().getValue() ==
              toString(IteratorType::Parallel);
     });
   };
-  return llvm::none_of(consumer.getInputOpOperands(), isProducerResultValue) &&
-         llvm::any_of(consumer.getOutputOpOperands(), isProducerResultValue) &&
-         isElementWiseParallelOp(producer);
+
+  // Fuse if the dependence from producer to consumer is to the `outs` operand
+  // of the consumer and the producer is a parallel operation
+  if (llvm::none_of(consumer.getInputOpOperands(), isProducerResultValue) &&
+      llvm::any_of(consumer.getOutputOpOperands(), isProducerResultValue) &&
+      isElementWiseParallelOp(producer))
+    return true;
+
+  if (producer->getNumResults() == 1 &&
+      llvm::hasSingleElement(producer->getUsers()) &&
+      llvm::any_of(consumer.getInputOpOperands(), isProducerResultValue) &&
+      isElementWiseParallelOp(consumer))
+    return true;
+
+  return false;
 }
 
 /// For a given block partition the LinalgOps in the block into fusable
@@ -822,7 +838,7 @@ static void decideFusableLinalgOps(FuncOp funcOp) {
     auto linalgOps = block.getOps<linalg::LinalgOp>();
 
     // Start with a root operation. Everything will be "fused with it".
-    for (linalg::LinalgOp linalgOp : linalgOps) {
+    for (linalg::LinalgOp linalgOp : llvm::reverse(linalgOps)) {
       Operation *op = linalgOp.getOperation();
       if (!isRootOp(op)) continue;
       unsigned currGroupNum = numRootOps++;
@@ -831,7 +847,7 @@ static void decideFusableLinalgOps(FuncOp funcOp) {
         auto producer = operand.getDefiningOp<linalg::LinalgOp>();
         if (!producer) continue;
         Operation *producerOp = producer.getOperation();
-        if (producerOp->hasAttr(kRootOpAttr)) continue;
+        if (producerOp->hasAttr(kFusionGroupsAttr)) continue;
         if (!isProducerFusableWithConsumer(producer, op)) continue;
 
         SmallVector<int64_t, 2> fusionGroups = {};
