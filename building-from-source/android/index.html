@@ -1,0 +1,931 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+      
+        <link rel="canonical" href="https://google.github.io/iree/building-from-source/android/">
+      
+      <link rel="icon" href="../../ghost.svg">
+      <meta name="generator" content="mkdocs-1.1.2, mkdocs-material-7.1.4">
+    
+    
+      
+        <title>Android cross-compilation - IREE</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.bde7dde4.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ef6f36e2.min.css">
+        
+      
+    
+    
+    
+      
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,400,400i,700%7CRoboto+Mono&display=fallback">
+        <style>:root{--md-text-font-family:"Roboto";--md-code-font-family:"Roboto Mono"}</style>
+      
+    
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/extra.css">
+    
+    
+      
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <script>function __prefix(e){return new URL("../..",location).pathname+"."+e}function __get(e,t=localStorage){return JSON.parse(t.getItem(__prefix(e)))}</script>
+    
+      <script>var palette=__get("__palette");if(null!==palette&&"object"==typeof palette.color)for(var key in palette.color)document.body.setAttribute("data-md-color-"+key,palette.color[key])</script>
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#android-cross-compilation" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="IREE" class="md-header__button md-logo" aria-label="IREE" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 128 128"><defs/><symbol id="h" viewBox="-64.5 -64.5 129 129"><g fill="none" stroke="#4285f4" stroke-miterlimit="10"><rect width="128" height="128" x="-64" y="-64"/><path d="M36.95 37.82C27.32 46.32 14.2 51 0 51c-14.27 0-27.39-4.62-36.96-13.01C-47.45 28.79-53 15.65-53 0c0-15.58 5.55-28.69 16.04-37.92C-27.36-46.35-14.24-51 0-51c14.17 0 27.29 4.71 36.95 13.25C47.45-28.45 53-15.4 53 0c0 15.47-5.55 28.55-16.05 37.82z"/><path d="M0 55h0c-29.59 0-57-19.01-57-55 0-35.8 27.41-55 57-55h0c29.59 0 57 19.69 57 55 0 35.51-27.41 55-57 55z"/><path d="M0-43c-12.29 0-23.54 3.94-31.68 11.09C-40.39-24.25-45-13.21-45 0c0 29.7 22.6 43 45 43 21.67 0 45-13.46 45-43S21.67-43 0-43h0z"/><line x1="-.01" x2="-.01" y1="51" y2="-51"/><line x1="-16" x2="-16" y1="48.95" y2="-48.93"/><line x1="15.99" x2="15.99" y1="48.91" y2="-48.93"/><line x1="53" x2="-53" y1=".08" y2=".08"/></g></symbol><linearGradient id="a" x1="64.0003" x2="64.0003" y1="8.5308" y2="121.1266" gradientUnits="userSpaceOnUse"><stop offset=".00131497" stop-color="#c7c7c7"/><stop offset=".2797" stop-color="#cacaca"/><stop offset=".5253" stop-color="#d5d5d5"/><stop offset=".7578" stop-color="#e7e7e7"/><stop offset=".9473" stop-color="#fcfcfc"/></linearGradient><path fill="url(#a)" d="M101.04 122.77c-1 0-3.35-1.25-5.43-2.36-3.88-2.06-8.72-4.63-13.51-4.63-4.25 0-7.42 2.02-10.22 3.8-2.51 1.6-4.88 3.11-7.87 3.17-3.22-.06-5.61-1.61-8.15-3.26-2.82-1.83-5.73-3.72-9.92-3.72-4.79 0-9.65 2.57-13.55 4.63-2.09 1.11-4.47 2.36-5.47 2.36-1.21 0-3.23-1.01-3.34-1.54.02-.07.05-.18.07-.25.02-.1 2.12-10.3 3.82-20.52 3.69-22.18 2.06-22.84.33-23.55C16.17 72.16 5.14 55.19 5.4 46c.05-1.97.79-4.08 1.95-4.2.09-.01.17-.02.25-.02.33 0 .44.05 1.44 1.3.6.75 1.34 1.67 2.44 2.74 5.12 4.96 9.32 7.17 16.01 8.45.13.02.25.04.38.04.46 0 .91-.16 1.27-.46.46-.38.73-.95.73-1.54V38.6c0-8.28 3.45-16.52 9.48-22.6 6.39-6.45 15.1-10 24.54-10 18.64 0 34.38 14.93 34.38 32.6v13.71c0 .61.28 1.19.75 1.56.36.28.8.44 1.25.44.15 0 .3-.02.45-.05 6.47-1.49 11.37-4.09 15.87-8.44 1.11-1.07 1.85-2.01 2.45-2.76 1.01-1.28 1.09-1.28 1.4-1.28.08 0 .16.01.24.01 1.15.12 1.88 2.23 1.93 4.19.24 9.2-10.8 26.17-22.43 30.93-1.73.71-3.36 1.37.33 23.55 1.7 10.22 3.8 20.42 3.82 20.52.01.07.03.13.05.2-.1.58-2.12 1.59-3.34 1.59z"/><path fill="#a1a1a1" d="M63.87 8c17.55 0 32.38 14.01 32.38 30.6v13.71c0 1.22.56 2.37 1.51 3.13.71.57 1.6.87 2.49.87.3 0 .6-.03.9-.1 6.85-1.57 12.03-4.34 16.81-8.95 1.09-1.05 1.86-1.99 2.44-2.72.11.41.19.92.21 1.5.12 4.4-2.47 10.6-6.93 16.6-4.33 5.83-9.8 10.59-14.26 12.42-3.44 1.4-4.48 4.12-.88 25.73 1.41 8.45 3.08 16.88 3.64 19.65-.38.17-.83.3-1.09.33-.79-.13-2.95-1.28-4.53-2.12-4.08-2.17-9.16-4.86-14.45-4.86-4.83 0-8.26 2.19-11.29 4.12-2.34 1.49-4.37 2.78-6.75 2.86-2.68-.07-4.63-1.34-7.1-2.94-2.92-1.89-6.23-4.04-11.01-4.04-5.29 0-10.39 2.69-14.49 4.86-1.59.84-3.76 1.99-4.56 2.12-.27-.03-.72-.16-1.09-.32.56-2.77 2.24-11.2 3.64-19.65 3.6-21.61 2.55-24.33-.89-25.73-4.46-1.82-9.92-6.58-14.25-12.42-4.45-6-7.04-12.21-6.92-16.61.02-.6.1-1.12.22-1.53.58.73 1.37 1.69 2.47 2.74 5.45 5.27 9.9 7.62 17.03 8.98.25.05.5.07.75.07.92 0 1.83-.32 2.55-.92.92-.76 1.45-1.89 1.45-3.08V38.6c0-7.76 3.24-15.48 8.9-21.19C46.76 11.34 54.97 8 63.87 8m0-4c-21.2 0-36.01 16.72-36.01 34.6v13.71c-6.58-1.26-10.31-3.39-15-7.93-2.83-2.72-3.15-4.6-5.27-4.6-.14 0-.29.01-.45.03-2.61.27-3.67 3.51-3.74 6.13-.32 11.52 12.98 28.46 23.65 32.83 3.02 1.23-5.35 41.81-5.35 41.81-.83 2.61 3.43 4.19 5.23 4.19 3.62 0 11.7-6.99 19.02-6.99 7.24 0 10.43 6.83 18.11 6.98 7.16-.14 10.79-6.98 18.04-6.98 7.32 0 15.32 6.99 18.94 6.99 1.81 0 6.07-1.58 5.24-4.19 0 0-8.36-40.58-5.35-41.81 10.67-4.37 23.98-21.31 23.67-32.83-.07-2.62-1.12-5.86-3.72-6.13-.16-.02-.31-.03-.46-.03-2.13 0-2.42 1.88-5.24 4.6-4.71 4.54-9.45 6.67-14.93 7.93V38.6c0-18.18-15.9-34.6-36.38-34.6z"/><g><defs><path id="b" d="M63.99 61.7c-9.51 0-18.34-.8-25.72-2.16-1.83-.34-3.45 1.27-3.07 3.09 2.45 11.99 14.25 21.84 28.78 21.84 15.9 0 26.6-10.17 28.82-21.88.34-1.81-1.27-3.39-3.08-3.05-7.37 1.36-16.21 2.16-25.73 2.16z"/></defs><clipPath id="c"><use overflow="visible" xlink:href="#b"/></clipPath><path fill="#242424" d="M63.99 61.7c-9.51 0-18.34-.8-25.72-2.16-1.83-.34-3.45 1.27-3.07 3.09 2.45 11.99 14.25 21.84 28.78 21.84 15.9 0 26.6-10.17 28.82-21.88.34-1.81-1.27-3.39-3.08-3.05-7.37 1.36-16.21 2.16-25.73 2.16z" clip-path="url(#c)"/><g clip-path="url(#c)" opacity=".2"><path d="M89.74 62.58c-1.09 5.04-3.96 9.64-8.11 13-4.74 3.85-10.84 5.88-17.65 5.88-12.26 0-23.21-8.08-25.72-18.88 7.69 1.38 16.57 2.11 25.73 2.11 9.17.01 18.06-.72 25.75-2.11m.47-3.09c-.16 0-.32.01-.49.05-7.37 1.37-16.22 2.16-25.73 2.16-9.51 0-18.34-.8-25.72-2.16-.17-.03-.33-.05-.49-.05-1.61 0-2.92 1.48-2.58 3.14 2.45 11.99 14.25 21.84 28.78 21.84 15.9 0 26.6-10.17 28.82-21.88.31-1.65-.99-3.1-2.59-3.1z"/></g><path fill="none" d="M63.99 61.7c-9.51 0-18.34-.8-25.72-2.16-1.83-.34-3.45 1.27-3.07 3.09 2.45 11.99 14.25 21.84 28.78 21.84 15.9 0 26.6-10.17 28.82-21.88.34-1.81-1.27-3.39-3.08-3.05-7.37 1.36-16.21 2.16-25.73 2.16z"/><g><defs><path id="d" d="M38.28 63.14v33.01h50.87V63.14c-7.57 1.31-16.23 2.01-25.16 2.01-8.91 0-17.57-.69-25.13-2"/></defs><clipPath id="e"><use overflow="visible" xlink:href="#d"/></clipPath><path fill="#e04c74" d="M66.99 95.88h-4.91c-6.43 0-11.64-5.21-11.64-11.64v-30.2h28.19v30.2c0 6.43-5.21 11.64-11.64 11.64z" clip-path="url(#e)"/><g clip-path="url(#e)" opacity=".3"><path fill="#ab3f2e" d="M75.78 56.88v27.36c0 4.85-3.94 8.79-8.79 8.79h-4.91c-4.85 0-8.79-3.94-8.79-8.79V56.88h22.49m2.85-2.84H50.44v30.2c0 6.43 5.21 11.64 11.64 11.64h4.91c6.43 0 11.64-5.21 11.64-11.64v-30.2z"/></g><line x1="64.54" x2="64.54" y1="54.04" y2="79.56" fill="none" stroke="#ab3f2e" stroke-linecap="round" stroke-miterlimit="10" stroke-width="3" clip-path="url(#e)" opacity=".3"/></g></g><g><circle cx="76.36" cy="41.86" r="15.81" fill="#fff"/><path fill="#a1a1a1" d="M76.36 30.06c6.51 0 11.81 5.3 11.81 11.81s-5.3 11.81-11.81 11.81c-6.51 0-11.81-5.3-11.81-11.81s5.3-11.81 11.81-11.81m0-4c-8.73 0-15.81 7.08-15.81 15.81s7.08 15.81 15.81 15.81 15.81-7.08 15.81-15.81-7.08-15.81-15.81-15.81z"/><path fill="#242424" d="M76.36 36.24c-3.06 0-5.53 1.81-5.53 5.62s2.48 5.62 5.53 5.62c3.06 0 5.53-1.81 5.53-5.62s-2.47-5.62-5.53-5.62z"/><g fill="#242424"><path d="M54.09 48.24s-.07-.03-.2-.09c-.06-.03-.14-.06-.23-.1-.06-.02-.14-.04-.22-.06-.15-.05-.41-.13-.69-.2-.27-.08-.6-.14-.96-.21-.72-.13-1.59-.21-2.54-.23-.95-.01-1.97.05-2.99.2-.19.03-.6.08-.79.12-.23.04-.46.08-.72.14-.49.11-.97.22-1.42.36-.91.28-1.72.59-2.38.91-.65.32-1.15.63-1.48.85-.16.11-.29.2-.37.27-.08.06-.13.1-.13.1l-.21.15c-.82.61-1.97.44-2.58-.38-.5-.67-.47-1.56 0-2.19 0 0 .05-.07.16-.21.1-.14.25-.35.47-.58.21-.24.48-.52.8-.8.32-.29.7-.59 1.13-.88.85-.6 1.91-1.15 3.09-1.6.59-.22 1.2-.43 1.84-.58.31-.08.65-.15.99-.22.38-.08.56-.1.95-.17 1.31-.17 2.64-.22 3.9-.11 1.25.11 2.42.35 3.41.69.49.16.94.35 1.33.54.4.18.7.37 1.01.56.15.09.28.18.39.26.08.06.15.12.2.16.11.09.17.13.17.13.8.65.93 1.82.28 2.62-.56.68-1.46.88-2.21.55z"/><path d="M53.59 47.57s-.06-.05-.16-.15c-.11-.12-.24-.21-.39-.34-.34-.28-.86-.7-1.52-1.19-.67-.48-1.47-1.04-2.36-1.61-.45-.28-.92-.57-1.39-.86-.47-.29-.99-.59-1.45-.84-.54-.31-1.01-.57-1.5-.83s-.98-.51-1.45-.75c-.95-.47-1.84-.88-2.59-1.2-.76-.32-1.38-.55-1.81-.7-.42-.13-.65-.21-.65-.21l-.19-.06c-.97-.31-1.5-1.36-1.19-2.33.26-.8 1.01-1.3 1.81-1.28 0 0 .09 0 .26.01.17 0 .42.01.72.04.61.06 1.45.19 2.41.45.96.25 2.04.61 3.15 1.07.55.24 1.13.48 1.68.76.57.28 1.16.6 1.67.87.59.34 1.11.66 1.64 1 .53.33 1.03.7 1.52 1.05.97.72 1.83 1.46 2.53 2.15.71.69 1.25 1.34 1.62 1.84.21.27.35.49.41.6.07.12.11.19.11.19.53.88.26 2.02-.62 2.56-.74.45-1.67.32-2.26-.24z"/></g></g></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3V6m0 5h18v2H3v-2m0 5h18v2H3v-2z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            IREE
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Android cross-compilation
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      <form class="md-header__option" data-md-component="palette">
+        
+          
+          
+          <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo" type="radio" name="__palette" id="__palette_1">
+          
+            <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M7 10a2 2 0 0 1 2 2 2 2 0 0 1-2 2 2 2 0 0 1-2-2 2 2 0 0 1 2-2m10-3a5 5 0 0 1 5 5 5 5 0 0 1-5 5H7a5 5 0 0 1-5-5 5 5 0 0 1 5-5h10M7 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3h10a3 3 0 0 0 3-3 3 3 0 0 0-3-3H7z"/></svg>
+            </label>
+          
+        
+          
+          
+          <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="blue" data-md-color-accent="blue" type="radio" name="__palette" id="__palette_2">
+          
+            <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17 7H7a5 5 0 0 0-5 5 5 5 0 0 0 5 5h10a5 5 0 0 0 5-5 5 5 0 0 0-5-5m0 8a3 3 0 0 1-3-3 3 3 0 0 1 3-3 3 3 0 0 1 3 3 3 3 0 0 1-3 3z"/></svg>
+            </label>
+          
+        
+      </form>
+    
+    
+    
+      <label class="md-header__button md-icon" for="__search">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.516 6.516 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5z"/></svg>
+      </label>
+      
+<div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" data-md-state="active" required>
+      <label class="md-search__icon md-icon" for="__search">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.516 6.516 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5z"/></svg>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11h12z"/></svg>
+      </label>
+      <button type="reset" class="md-search__icon md-icon" aria-label="Clear" tabindex="-1">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z"/></svg>
+      </button>
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+    
+    
+      <div class="md-header__source">
+        
+<a href="https://github.com/google/iree" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6zm-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3zm44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9zM244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8zM97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1zm-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7zm32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1zm-11.4-14.7c-1.6 1-1.6 3.6 0 5.9 1.6 2.3 4.3 3.3 5.6 2.3 1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2z"/></svg>
+  </div>
+  <div class="md-source__repository">
+    google/iree
+  </div>
+</a>
+      </div>
+    
+  </nav>
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="IREE" class="md-nav__button md-logo" aria-label="IREE" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 128 128"><defs/><symbol id="h" viewBox="-64.5 -64.5 129 129"><g fill="none" stroke="#4285f4" stroke-miterlimit="10"><rect width="128" height="128" x="-64" y="-64"/><path d="M36.95 37.82C27.32 46.32 14.2 51 0 51c-14.27 0-27.39-4.62-36.96-13.01C-47.45 28.79-53 15.65-53 0c0-15.58 5.55-28.69 16.04-37.92C-27.36-46.35-14.24-51 0-51c14.17 0 27.29 4.71 36.95 13.25C47.45-28.45 53-15.4 53 0c0 15.47-5.55 28.55-16.05 37.82z"/><path d="M0 55h0c-29.59 0-57-19.01-57-55 0-35.8 27.41-55 57-55h0c29.59 0 57 19.69 57 55 0 35.51-27.41 55-57 55z"/><path d="M0-43c-12.29 0-23.54 3.94-31.68 11.09C-40.39-24.25-45-13.21-45 0c0 29.7 22.6 43 45 43 21.67 0 45-13.46 45-43S21.67-43 0-43h0z"/><line x1="-.01" x2="-.01" y1="51" y2="-51"/><line x1="-16" x2="-16" y1="48.95" y2="-48.93"/><line x1="15.99" x2="15.99" y1="48.91" y2="-48.93"/><line x1="53" x2="-53" y1=".08" y2=".08"/></g></symbol><linearGradient id="a" x1="64.0003" x2="64.0003" y1="8.5308" y2="121.1266" gradientUnits="userSpaceOnUse"><stop offset=".00131497" stop-color="#c7c7c7"/><stop offset=".2797" stop-color="#cacaca"/><stop offset=".5253" stop-color="#d5d5d5"/><stop offset=".7578" stop-color="#e7e7e7"/><stop offset=".9473" stop-color="#fcfcfc"/></linearGradient><path fill="url(#a)" d="M101.04 122.77c-1 0-3.35-1.25-5.43-2.36-3.88-2.06-8.72-4.63-13.51-4.63-4.25 0-7.42 2.02-10.22 3.8-2.51 1.6-4.88 3.11-7.87 3.17-3.22-.06-5.61-1.61-8.15-3.26-2.82-1.83-5.73-3.72-9.92-3.72-4.79 0-9.65 2.57-13.55 4.63-2.09 1.11-4.47 2.36-5.47 2.36-1.21 0-3.23-1.01-3.34-1.54.02-.07.05-.18.07-.25.02-.1 2.12-10.3 3.82-20.52 3.69-22.18 2.06-22.84.33-23.55C16.17 72.16 5.14 55.19 5.4 46c.05-1.97.79-4.08 1.95-4.2.09-.01.17-.02.25-.02.33 0 .44.05 1.44 1.3.6.75 1.34 1.67 2.44 2.74 5.12 4.96 9.32 7.17 16.01 8.45.13.02.25.04.38.04.46 0 .91-.16 1.27-.46.46-.38.73-.95.73-1.54V38.6c0-8.28 3.45-16.52 9.48-22.6 6.39-6.45 15.1-10 24.54-10 18.64 0 34.38 14.93 34.38 32.6v13.71c0 .61.28 1.19.75 1.56.36.28.8.44 1.25.44.15 0 .3-.02.45-.05 6.47-1.49 11.37-4.09 15.87-8.44 1.11-1.07 1.85-2.01 2.45-2.76 1.01-1.28 1.09-1.28 1.4-1.28.08 0 .16.01.24.01 1.15.12 1.88 2.23 1.93 4.19.24 9.2-10.8 26.17-22.43 30.93-1.73.71-3.36 1.37.33 23.55 1.7 10.22 3.8 20.42 3.82 20.52.01.07.03.13.05.2-.1.58-2.12 1.59-3.34 1.59z"/><path fill="#a1a1a1" d="M63.87 8c17.55 0 32.38 14.01 32.38 30.6v13.71c0 1.22.56 2.37 1.51 3.13.71.57 1.6.87 2.49.87.3 0 .6-.03.9-.1 6.85-1.57 12.03-4.34 16.81-8.95 1.09-1.05 1.86-1.99 2.44-2.72.11.41.19.92.21 1.5.12 4.4-2.47 10.6-6.93 16.6-4.33 5.83-9.8 10.59-14.26 12.42-3.44 1.4-4.48 4.12-.88 25.73 1.41 8.45 3.08 16.88 3.64 19.65-.38.17-.83.3-1.09.33-.79-.13-2.95-1.28-4.53-2.12-4.08-2.17-9.16-4.86-14.45-4.86-4.83 0-8.26 2.19-11.29 4.12-2.34 1.49-4.37 2.78-6.75 2.86-2.68-.07-4.63-1.34-7.1-2.94-2.92-1.89-6.23-4.04-11.01-4.04-5.29 0-10.39 2.69-14.49 4.86-1.59.84-3.76 1.99-4.56 2.12-.27-.03-.72-.16-1.09-.32.56-2.77 2.24-11.2 3.64-19.65 3.6-21.61 2.55-24.33-.89-25.73-4.46-1.82-9.92-6.58-14.25-12.42-4.45-6-7.04-12.21-6.92-16.61.02-.6.1-1.12.22-1.53.58.73 1.37 1.69 2.47 2.74 5.45 5.27 9.9 7.62 17.03 8.98.25.05.5.07.75.07.92 0 1.83-.32 2.55-.92.92-.76 1.45-1.89 1.45-3.08V38.6c0-7.76 3.24-15.48 8.9-21.19C46.76 11.34 54.97 8 63.87 8m0-4c-21.2 0-36.01 16.72-36.01 34.6v13.71c-6.58-1.26-10.31-3.39-15-7.93-2.83-2.72-3.15-4.6-5.27-4.6-.14 0-.29.01-.45.03-2.61.27-3.67 3.51-3.74 6.13-.32 11.52 12.98 28.46 23.65 32.83 3.02 1.23-5.35 41.81-5.35 41.81-.83 2.61 3.43 4.19 5.23 4.19 3.62 0 11.7-6.99 19.02-6.99 7.24 0 10.43 6.83 18.11 6.98 7.16-.14 10.79-6.98 18.04-6.98 7.32 0 15.32 6.99 18.94 6.99 1.81 0 6.07-1.58 5.24-4.19 0 0-8.36-40.58-5.35-41.81 10.67-4.37 23.98-21.31 23.67-32.83-.07-2.62-1.12-5.86-3.72-6.13-.16-.02-.31-.03-.46-.03-2.13 0-2.42 1.88-5.24 4.6-4.71 4.54-9.45 6.67-14.93 7.93V38.6c0-18.18-15.9-34.6-36.38-34.6z"/><g><defs><path id="b" d="M63.99 61.7c-9.51 0-18.34-.8-25.72-2.16-1.83-.34-3.45 1.27-3.07 3.09 2.45 11.99 14.25 21.84 28.78 21.84 15.9 0 26.6-10.17 28.82-21.88.34-1.81-1.27-3.39-3.08-3.05-7.37 1.36-16.21 2.16-25.73 2.16z"/></defs><clipPath id="c"><use overflow="visible" xlink:href="#b"/></clipPath><path fill="#242424" d="M63.99 61.7c-9.51 0-18.34-.8-25.72-2.16-1.83-.34-3.45 1.27-3.07 3.09 2.45 11.99 14.25 21.84 28.78 21.84 15.9 0 26.6-10.17 28.82-21.88.34-1.81-1.27-3.39-3.08-3.05-7.37 1.36-16.21 2.16-25.73 2.16z" clip-path="url(#c)"/><g clip-path="url(#c)" opacity=".2"><path d="M89.74 62.58c-1.09 5.04-3.96 9.64-8.11 13-4.74 3.85-10.84 5.88-17.65 5.88-12.26 0-23.21-8.08-25.72-18.88 7.69 1.38 16.57 2.11 25.73 2.11 9.17.01 18.06-.72 25.75-2.11m.47-3.09c-.16 0-.32.01-.49.05-7.37 1.37-16.22 2.16-25.73 2.16-9.51 0-18.34-.8-25.72-2.16-.17-.03-.33-.05-.49-.05-1.61 0-2.92 1.48-2.58 3.14 2.45 11.99 14.25 21.84 28.78 21.84 15.9 0 26.6-10.17 28.82-21.88.31-1.65-.99-3.1-2.59-3.1z"/></g><path fill="none" d="M63.99 61.7c-9.51 0-18.34-.8-25.72-2.16-1.83-.34-3.45 1.27-3.07 3.09 2.45 11.99 14.25 21.84 28.78 21.84 15.9 0 26.6-10.17 28.82-21.88.34-1.81-1.27-3.39-3.08-3.05-7.37 1.36-16.21 2.16-25.73 2.16z"/><g><defs><path id="d" d="M38.28 63.14v33.01h50.87V63.14c-7.57 1.31-16.23 2.01-25.16 2.01-8.91 0-17.57-.69-25.13-2"/></defs><clipPath id="e"><use overflow="visible" xlink:href="#d"/></clipPath><path fill="#e04c74" d="M66.99 95.88h-4.91c-6.43 0-11.64-5.21-11.64-11.64v-30.2h28.19v30.2c0 6.43-5.21 11.64-11.64 11.64z" clip-path="url(#e)"/><g clip-path="url(#e)" opacity=".3"><path fill="#ab3f2e" d="M75.78 56.88v27.36c0 4.85-3.94 8.79-8.79 8.79h-4.91c-4.85 0-8.79-3.94-8.79-8.79V56.88h22.49m2.85-2.84H50.44v30.2c0 6.43 5.21 11.64 11.64 11.64h4.91c6.43 0 11.64-5.21 11.64-11.64v-30.2z"/></g><line x1="64.54" x2="64.54" y1="54.04" y2="79.56" fill="none" stroke="#ab3f2e" stroke-linecap="round" stroke-miterlimit="10" stroke-width="3" clip-path="url(#e)" opacity=".3"/></g></g><g><circle cx="76.36" cy="41.86" r="15.81" fill="#fff"/><path fill="#a1a1a1" d="M76.36 30.06c6.51 0 11.81 5.3 11.81 11.81s-5.3 11.81-11.81 11.81c-6.51 0-11.81-5.3-11.81-11.81s5.3-11.81 11.81-11.81m0-4c-8.73 0-15.81 7.08-15.81 15.81s7.08 15.81 15.81 15.81 15.81-7.08 15.81-15.81-7.08-15.81-15.81-15.81z"/><path fill="#242424" d="M76.36 36.24c-3.06 0-5.53 1.81-5.53 5.62s2.48 5.62 5.53 5.62c3.06 0 5.53-1.81 5.53-5.62s-2.47-5.62-5.53-5.62z"/><g fill="#242424"><path d="M54.09 48.24s-.07-.03-.2-.09c-.06-.03-.14-.06-.23-.1-.06-.02-.14-.04-.22-.06-.15-.05-.41-.13-.69-.2-.27-.08-.6-.14-.96-.21-.72-.13-1.59-.21-2.54-.23-.95-.01-1.97.05-2.99.2-.19.03-.6.08-.79.12-.23.04-.46.08-.72.14-.49.11-.97.22-1.42.36-.91.28-1.72.59-2.38.91-.65.32-1.15.63-1.48.85-.16.11-.29.2-.37.27-.08.06-.13.1-.13.1l-.21.15c-.82.61-1.97.44-2.58-.38-.5-.67-.47-1.56 0-2.19 0 0 .05-.07.16-.21.1-.14.25-.35.47-.58.21-.24.48-.52.8-.8.32-.29.7-.59 1.13-.88.85-.6 1.91-1.15 3.09-1.6.59-.22 1.2-.43 1.84-.58.31-.08.65-.15.99-.22.38-.08.56-.1.95-.17 1.31-.17 2.64-.22 3.9-.11 1.25.11 2.42.35 3.41.69.49.16.94.35 1.33.54.4.18.7.37 1.01.56.15.09.28.18.39.26.08.06.15.12.2.16.11.09.17.13.17.13.8.65.93 1.82.28 2.62-.56.68-1.46.88-2.21.55z"/><path d="M53.59 47.57s-.06-.05-.16-.15c-.11-.12-.24-.21-.39-.34-.34-.28-.86-.7-1.52-1.19-.67-.48-1.47-1.04-2.36-1.61-.45-.28-.92-.57-1.39-.86-.47-.29-.99-.59-1.45-.84-.54-.31-1.01-.57-1.5-.83s-.98-.51-1.45-.75c-.95-.47-1.84-.88-2.59-1.2-.76-.32-1.38-.55-1.81-.7-.42-.13-.65-.21-.65-.21l-.19-.06c-.97-.31-1.5-1.36-1.19-2.33.26-.8 1.01-1.3 1.81-1.28 0 0 .09 0 .26.01.17 0 .42.01.72.04.61.06 1.45.19 2.41.45.96.25 2.04.61 3.15 1.07.55.24 1.13.48 1.68.76.57.28 1.16.6 1.67.87.59.34 1.11.66 1.64 1 .53.33 1.03.7 1.52 1.05.97.72 1.83 1.46 2.53 2.15.71.69 1.25 1.34 1.62 1.84.21.27.35.49.41.6.07.12.11.19.11.19.53.88.26 2.02-.62 2.56-.74.45-1.67.32-2.26-.24z"/></g></g></svg>
+
+    </a>
+    IREE
+  </label>
+  
+    <div class="md-nav__source">
+      
+<a href="https://github.com/google/iree" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6zm-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3zm44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9zM244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8zM97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1zm-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7zm32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1zm-11.4-14.7c-1.6 1-1.6 3.6 0 5.9 1.6 2.3 4.3 3.3 5.6 2.3 1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2z"/></svg>
+  </div>
+  <div class="md-source__repository">
+    google/iree
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+      
+
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        Home
+      </a>
+    </li>
+  
+
+    
+      
+      
+      
+
+  
+  
+  
+    
+      
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+      
+        <input class="md-nav__toggle md-toggle" data-md-toggle="__nav_2" type="checkbox" id="__nav_2" >
+      
+      <label class="md-nav__link" for="__nav_2">
+        ML frameworks
+        <span class="md-nav__icon md-icon"></span>
+      </label>
+      <nav class="md-nav" aria-label="ML frameworks" data-md-level="1">
+        <label class="md-nav__title" for="__nav_2">
+          <span class="md-nav__icon md-icon"></span>
+          ML frameworks
+        </label>
+        <ul class="md-nav__list" data-md-scrollfix>
+          
+            
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../ml-frameworks/tensorflow/" class="md-nav__link">
+        TensorFlow
+      </a>
+    </li>
+  
+
+          
+            
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../ml-frameworks/tensorflow-lite/" class="md-nav__link">
+        TensorFlow Lite
+      </a>
+    </li>
+  
+
+          
+            
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../ml-frameworks/jax/" class="md-nav__link">
+        JAX
+      </a>
+    </li>
+  
+
+          
+        </ul>
+      </nav>
+    </li>
+  
+
+    
+      
+      
+      
+
+  
+  
+  
+    
+      
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+      
+        <input class="md-nav__toggle md-toggle" data-md-toggle="__nav_3" type="checkbox" id="__nav_3" >
+      
+      <label class="md-nav__link" for="__nav_3">
+        Deployment configurations
+        <span class="md-nav__icon md-icon"></span>
+      </label>
+      <nav class="md-nav" aria-label="Deployment configurations" data-md-level="1">
+        <label class="md-nav__title" for="__nav_3">
+          <span class="md-nav__icon md-icon"></span>
+          Deployment configurations
+        </label>
+        <ul class="md-nav__list" data-md-scrollfix>
+          
+            
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../deployment-configurations/cpu-dylib/" class="md-nav__link">
+        CPU - Dylib
+      </a>
+    </li>
+  
+
+          
+            
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../deployment-configurations/gpu-vulkan/" class="md-nav__link">
+        GPU - Vulkan
+      </a>
+    </li>
+  
+
+          
+        </ul>
+      </nav>
+    </li>
+  
+
+    
+      
+      
+      
+
+  
+  
+    
+  
+  
+    
+      
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+      
+        <input class="md-nav__toggle md-toggle" data-md-toggle="__nav_4" type="checkbox" id="__nav_4" checked>
+      
+      <label class="md-nav__link" for="__nav_4">
+        Building from source
+        <span class="md-nav__icon md-icon"></span>
+      </label>
+      <nav class="md-nav" aria-label="Building from source" data-md-level="1">
+        <label class="md-nav__title" for="__nav_4">
+          <span class="md-nav__icon md-icon"></span>
+          Building from source
+        </label>
+        <ul class="md-nav__list" data-md-scrollfix>
+          
+            
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/" class="md-nav__link">
+        Getting started
+      </a>
+    </li>
+  
+
+          
+            
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../optional-features/" class="md-nav__link">
+        Optional features
+      </a>
+    </li>
+  
+
+          
+            
+  
+  
+    
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" data-md-toggle="toc" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          Android cross-compilation
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        Android cross-compilation
+      </a>
+      
+        
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#prerequisites" class="md-nav__link">
+    Prerequisites
+  </a>
+  
+    <nav class="md-nav" aria-label="Prerequisites">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#host-environment-setup" class="md-nav__link">
+    Host environment setup
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#install-android-ndk-and-adb" class="md-nav__link">
+    Install Android NDK and ADB
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configure-and-build" class="md-nav__link">
+    Configure and build
+  </a>
+  
+    <nav class="md-nav" aria-label="Configure and build">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#host-configuration" class="md-nav__link">
+    Host configuration
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#target-configuration" class="md-nav__link">
+    Target configuration
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#running-android-tests" class="md-nav__link">
+    Running Android tests
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#running-tools-directly" class="md-nav__link">
+    Running tools directly
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+          
+        </ul>
+      </nav>
+    </li>
+  
+
+    
+      
+      
+      
+
+  
+  
+  
+    
+      
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+      
+        <input class="md-nav__toggle md-toggle" data-md-toggle="__nav_5" type="checkbox" id="__nav_5" >
+      
+      <label class="md-nav__link" for="__nav_5">
+        Bindings
+        <span class="md-nav__icon md-icon"></span>
+      </label>
+      <nav class="md-nav" aria-label="Bindings" data-md-level="1">
+        <label class="md-nav__title" for="__nav_5">
+          <span class="md-nav__icon md-icon"></span>
+          Bindings
+        </label>
+        <ul class="md-nav__list" data-md-scrollfix>
+          
+            
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../bindings/c-api/" class="md-nav__link">
+        C API
+      </a>
+    </li>
+  
+
+          
+            
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../bindings/python/" class="md-nav__link">
+        Python
+      </a>
+    </li>
+  
+
+          
+            
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../bindings/tensorflow-lite/" class="md-nav__link">
+        TensorFlow Lite
+      </a>
+    </li>
+  
+
+          
+        </ul>
+      </nav>
+    </li>
+  
+
+    
+      
+      
+      
+
+  
+  
+  
+    
+      
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+      
+        <input class="md-nav__toggle md-toggle" data-md-toggle="__nav_6" type="checkbox" id="__nav_6" >
+      
+      <label class="md-nav__link" for="__nav_6">
+        Community
+        <span class="md-nav__icon md-icon"></span>
+      </label>
+      <nav class="md-nav" aria-label="Community" data-md-level="1">
+        <label class="md-nav__title" for="__nav_6">
+          <span class="md-nav__icon md-icon"></span>
+          Community
+        </label>
+        <ul class="md-nav__list" data-md-scrollfix>
+          
+            
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../community/projects/" class="md-nav__link">
+        Projects
+      </a>
+    </li>
+  
+
+          
+        </ul>
+      </nav>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#prerequisites" class="md-nav__link">
+    Prerequisites
+  </a>
+  
+    <nav class="md-nav" aria-label="Prerequisites">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#host-environment-setup" class="md-nav__link">
+    Host environment setup
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#install-android-ndk-and-adb" class="md-nav__link">
+    Install Android NDK and ADB
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configure-and-build" class="md-nav__link">
+    Configure and build
+  </a>
+  
+    <nav class="md-nav" aria-label="Configure and build">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#host-configuration" class="md-nav__link">
+    Host configuration
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#target-configuration" class="md-nav__link">
+    Target configuration
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#running-android-tests" class="md-nav__link">
+    Running Android tests
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#running-tools-directly" class="md-nav__link">
+    Running tools directly
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          <div class="md-content" data-md-component="content">
+            <article class="md-content__inner md-typeset">
+              
+                
+                
+                <h1 id="android-cross-compilation">Android cross-compilation<a class="headerlink" href="#android-cross-compilation" title="Permanent link">&para;</a></h1>
+<p>Running on a platform like Android involves cross-compiling from a <em>host</em>
+platform (e.g. Linux) to a <em>target</em> platform (a specific Android version and
+system architecture):</p>
+<ul>
+<li>IREE's <em>compiler</em> is built on the host and is used there to generate modules
+  for the target</li>
+<li>IREE's <em>runtime</em> is built on the host for the target. The runtime is then
+  either pushed to the target to run natively or is bundled into an Android
+  <a href="https://en.wikipedia.org/wiki/Android_application_package">APK</a></li>
+</ul>
+<h2 id="prerequisites">Prerequisites<a class="headerlink" href="#prerequisites" title="Permanent link">&para;</a></h2>
+<h3 id="host-environment-setup">Host environment setup<a class="headerlink" href="#host-environment-setup" title="Permanent link">&para;</a></h3>
+<p>You should already be able to build IREE from source on your host platform.
+Please make sure you have followed the <a href="../getting-started/">getting started</a>
+steps.</p>
+<h3 id="install-android-ndk-and-adb">Install Android NDK and ADB<a class="headerlink" href="#install-android-ndk-and-adb" title="Permanent link">&para;</a></h3>
+<p>The Android <a href="https://developer.android.com/ndk">Native Developer Kit (NDK)</a> is
+needed to use native C/C++ code on Android. You can
+<a href="https://developer.android.com/ndk/downloads">download it here</a>, or, if you
+have installed <a href="https://developer.android.com/studio">Android Studio</a>, you can
+follow <a href="https://developer.android.com/studio/projects/install-ndk">this guide</a>
+instead.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Make sure the <code>ANDROID_NDK</code> environment variable is set after installing
+the NDK.</p>
+</div>
+<p>ADB (the Android Debug Bridge) is also needed to communicate with Android
+devices from the command line. Install it following the
+<a href="https://developer.android.com/studio/command-line/adb">official user guide</a>.</p>
+<h2 id="configure-and-build">Configure and build<a class="headerlink" href="#configure-and-build" title="Permanent link">&para;</a></h2>
+<h3 id="host-configuration">Host configuration<a class="headerlink" href="#host-configuration" title="Permanent link">&para;</a></h3>
+<p>Build and install on your host machine:</p>
+<div class="highlight"><pre><span></span><code>cmake  -B ../iree-build/ -DCMAKE_INSTALL_PREFIX<span class="o">=</span>../iree-build/install .
+cmake --build ../iree-build/ --target install
+</code></pre></div>
+<h3 id="target-configuration">Target configuration<a class="headerlink" href="#target-configuration" title="Permanent link">&para;</a></h3>
+<p>Build the runtime using the Android NDK toolchain:</p>
+<div class="tabbed-set" data-tabs="1:2"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><label for="__tabbed_1_1">Linux</label><div class="tabbed-content">
+<div class="highlight"><pre><span></span><code>cmake -B ../iree-build-android/ <span class="se">\</span>
+  -DCMAKE_TOOLCHAIN_FILE<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">ANDROID_NDK</span><span class="p">?</span><span class="si">}</span><span class="s2">/build/cmake/android.toolchain.cmake&quot;</span> <span class="se">\</span>
+  -DIREE_HOST_BINARY_ROOT<span class="o">=</span><span class="s2">&quot;</span><span class="nv">$PWD</span><span class="s2">/../iree-build/install&quot;</span> <span class="se">\</span>
+  -DANDROID_ABI<span class="o">=</span><span class="s2">&quot;arm64-v8a&quot;</span> <span class="se">\</span>
+  -DANDROID_PLATFORM<span class="o">=</span><span class="s2">&quot;android-29&quot;</span> <span class="se">\</span>
+  -DIREE_BUILD_COMPILER<span class="o">=</span>OFF <span class="se">\</span>
+  .
+cmake --build ../iree-build-android/
+</code></pre></div>
+</div>
+<input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><label for="__tabbed_1_2">Windows</label><div class="tabbed-content">
+<div class="highlight"><pre><span></span><code>cmake -B ../iree-build-android/ <span class="se">\</span>
+  -DCMAKE_TOOLCHAIN_FILE<span class="o">=</span><span class="s2">&quot;%ANDROID_NDK%/build/cmake/android.toolchain.cmake&quot;</span> <span class="se">\</span>
+  -DIREE_HOST_BINARY_ROOT<span class="o">=</span><span class="s2">&quot;%CD%/../iree-build/install&quot;</span> <span class="se">\</span>
+  -DANDROID_ABI<span class="o">=</span><span class="s2">&quot;arm64-v8a&quot;</span> <span class="se">\</span>
+  -DANDROID_PLATFORM<span class="o">=</span><span class="s2">&quot;android-29&quot;</span> <span class="se">\</span>
+  -DIREE_BUILD_COMPILER<span class="o">=</span>OFF <span class="se">\</span>
+  .
+cmake --build ../iree-build-android/
+</code></pre></div>
+</div>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>See the
+<a href="https://developer.android.com/ndk/guides/cmake">Android NDK CMake guide</a>
+and
+<a href="https://developer.android.com/studio/projects/configure-cmake">Android Studio CMake guide</a>
+for details on configuring CMake for Android.</p>
+<p>The specific <code>ANDROID_ABI</code> and <code>ANDROID_PLATFORM</code> used should match your
+target device.</p>
+</div>
+<h2 id="running-android-tests">Running Android tests<a class="headerlink" href="#running-android-tests" title="Permanent link">&para;</a></h2>
+<p>Make sure you
+<a href="https://developer.android.com/studio/debug/dev-options#enable">enable developer options and USB debugging</a>
+on your Android device and can see your it when you run <code>adb devices</code>, then run
+all built tests through
+<a href="https://gitlab.kitware.com/cmake/community/-/wikis/doc/ctest/Testing-With-CTest">CTest</a>:</p>
+<div class="highlight"><pre><span></span><code><span class="nb">cd</span> ../iree-build-android/
+ctest --output-on-failure
+</code></pre></div>
+<p>This will automatically upload build artifacts to the connected Android device,
+run the tests, then report the status back to your host machine.</p>
+<h2 id="running-tools-directly">Running tools directly<a class="headerlink" href="#running-tools-directly" title="Permanent link">&para;</a></h2>
+<p>Invoke the host compiler tools produce input files:</p>
+<div class="highlight"><pre><span></span><code>../iree-build/install/bin/iree-translate <span class="se">\</span>
+  -iree-mlir-to-vm-bytecode-module <span class="se">\</span>
+  -iree-hal-target-backends<span class="o">=</span>vmvx <span class="se">\</span>
+  iree/tools/test/iree-run-module.mlir <span class="se">\</span>
+  -o /tmp/iree-run-module-vmvx.vmfb
+</code></pre></div>
+<p>Push the Android runtime tools to the device, along with any input files:</p>
+<div class="highlight"><pre><span></span><code>adb push ../iree-build-android/iree/tools/iree-run-module /data/local/tmp/
+adb shell chmod +x /data/local/tmp/iree-run-module
+adb push /tmp/iree-run-module-vmvx.vmfb /data/local/tmp/
+</code></pre></div>
+<p>Run the tool:</p>
+<div class="highlight"><pre><span></span><code>adb shell /data/local/tmp/iree-run-module -driver<span class="o">=</span>vmvx <span class="se">\</span>
+  -module_file<span class="o">=</span>/data/local/tmp/iree-run-module-vmvx.vmfb <span class="se">\</span>
+  -entry_function<span class="o">=</span>abs <span class="se">\</span>
+  -function_inputs<span class="o">=</span><span class="s2">&quot;i32=-5&quot;</span>
+</code></pre></div>
+                
+              
+              
+                
+
+
+              
+            </article>
+          </div>
+        </div>
+        
+          <a href="#" class="md-top md-icon" title="Back to top" data-md-component="top" data-md-state="hidden">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8v12z"/></svg>
+          </a>
+        
+      </main>
+      
+        
+
+<!-- Footer -->
+<footer class="md-footer">
+
+  <!-- The base theme links to previous and/or next page, we omit that here. -->
+
+  <!-- Further information -->
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+
+      <!-- Copyright and theme information -->
+      <div class="md-footer-copyright">
+        
+        <div class="md-footer-copyright__highlight">
+          Copyright &copy; 2021 Google LLC
+        </div>
+        
+        Made with
+        <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+          Material for MkDocs
+        </a>
+        
+      </div>
+
+      <!-- Social links -->
+      
+  <div class="md-footer-social">
+    
+      
+      
+      <a href="https://github.com/google/iree" target="_blank" rel="noopener" title="IREE on GitHub" class="md-footer-social__link">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6zm-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3zm44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9zM244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8zM97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1zm-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7zm32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1zm-11.4-14.7c-1.6 1-1.6 3.6 0 5.9 1.6 2.3 4.3 3.3 5.6 2.3 1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2z"/></svg>
+      </a>
+    
+      
+      
+      <a href="https://discord.gg/26P4xW4" target="_blank" rel="noopener" title="IREE Discord Server" class="md-footer-social__link">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><path d="M297.216 243.2c0 15.616-11.52 28.416-26.112 28.416-14.336 0-26.112-12.8-26.112-28.416s11.52-28.416 26.112-28.416c14.592 0 26.112 12.8 26.112 28.416zm-119.552-28.416c-14.592 0-26.112 12.8-26.112 28.416s11.776 28.416 26.112 28.416c14.592 0 26.112-12.8 26.112-28.416.256-15.616-11.52-28.416-26.112-28.416zM448 52.736V512c-64.494-56.994-43.868-38.128-118.784-107.776l13.568 47.36H52.48C23.552 451.584 0 428.032 0 398.848V52.736C0 23.552 23.552 0 52.48 0h343.04C424.448 0 448 23.552 448 52.736zm-72.96 242.688c0-82.432-36.864-149.248-36.864-149.248-36.864-27.648-71.936-26.88-71.936-26.88l-3.584 4.096c43.52 13.312 63.744 32.512 63.744 32.512-60.811-33.329-132.244-33.335-191.232-7.424-9.472 4.352-15.104 7.424-15.104 7.424s21.248-20.224 67.328-33.536l-2.56-3.072s-35.072-.768-71.936 26.88c0 0-36.864 66.816-36.864 149.248 0 0 21.504 37.12 78.08 38.912 0 0 9.472-11.52 17.152-21.248-32.512-9.728-44.8-30.208-44.8-30.208 3.766 2.636 9.976 6.053 10.496 6.4 43.21 24.198 104.588 32.126 159.744 8.96 8.96-3.328 18.944-8.192 29.44-15.104 0 0-12.8 20.992-46.336 30.464 7.68 9.728 16.896 20.736 16.896 20.736 56.576-1.792 78.336-38.912 78.336-38.912z"/></svg>
+      </a>
+    
+      
+      
+      <a href="https://groups.google.com/forum/#!forum/iree-discuss" target="_blank" rel="noopener" title="IREE Discuss Google Group" class="md-footer-social__link">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><path d="M96 224c35.3 0 64-28.7 64-64s-28.7-64-64-64-64 28.7-64 64 28.7 64 64 64zm448 0c35.3 0 64-28.7 64-64s-28.7-64-64-64-64 28.7-64 64 28.7 64 64 64zm32 32h-64c-17.6 0-33.5 7.1-45.1 18.6 40.3 22.1 68.9 62 75.1 109.4h66c17.7 0 32-14.3 32-32v-32c0-35.3-28.7-64-64-64zm-256 0c61.9 0 112-50.1 112-112S381.9 32 320 32 208 82.1 208 144s50.1 112 112 112zm76.8 32h-8.3c-20.8 10-43.9 16-68.5 16s-47.6-6-68.5-16h-8.3C179.6 288 128 339.6 128 403.2V432c0 26.5 21.5 48 48 48h288c26.5 0 48-21.5 48-48v-28.8c0-63.6-51.6-115.2-115.2-115.2zm-223.7-13.4C161.5 263.1 145.6 256 128 256H64c-35.3 0-64 28.7-64 64v32c0 17.7 14.3 32 32 32h65.9c6.3-47.4 34.9-87.3 75.2-109.4z"/></svg>
+      </a>
+    
+  </div>
+
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    <script id="__config" type="application/json">{"base": "../..", "features": ["navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top"], "translations": {"clipboard.copy": "Copy to clipboard", "clipboard.copied": "Copied to clipboard", "search.config.lang": "en", "search.config.pipeline": "trimmer, stopWordFilter", "search.config.separator": "[\\s\\-]+", "search.placeholder": "Search", "search.result.placeholder": "Type to start searching", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.term.missing": "Missing"}, "search": "../../assets/javascripts/workers/search.4fa0e4ee.min.js", "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.1d3bfcf1.min.js"></script>
+      
+    
+  </body>
+</html>
