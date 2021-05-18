@@ -91,7 +91,9 @@ class StructAttr : public Attribute {
 };
 
 static void emitStructClass(const StructAttr &structAttr, raw_ostream &os) {
-  if (!structAttr.getAllFields().empty()) {
+  std::vector<StructFieldAttr> allFields = structAttr.getAllFields();
+
+  if (!allFields.empty()) {
     os << formatv(R"(
 namespace detail {
 struct {0}Storage;
@@ -110,15 +112,15 @@ class {1} : public mlir::Attribute::AttrBase<{1}, mlir::Attribute, {3}Storage> {
 )",
                 structAttr.getSummary(), structAttr.getStructClassName(),
                 structAttr.getStructKind(),
-                structAttr.getAllFields().empty()
+                allFields.empty()
                     ? "Attribute"
                     : "detail::" + structAttr.getStructClassName());
 
-  if (!structAttr.getAllFields().empty()) {
+  if (!allFields.empty()) {
     os << "  static LogicalResult verify(\n";
     os << "      function_ref<InFlightDiagnostic()> emitError,\n";
     interleave(
-        structAttr.getAllFields(), os,
+        allFields, os,
         [&](StructFieldAttr field) {
           auto type = field.getType();
           os << formatv("      {0} {1}", type.getStorageType(),
@@ -130,24 +132,32 @@ class {1} : public mlir::Attribute::AttrBase<{1}, mlir::Attribute, {3}Storage> {
 
   // Attribute storage type constructor (IntegerAttr, etc).
   os << formatv("  static {0} get(", structAttr.getStructClassName());
-  if (structAttr.getAllFields().empty()) {
+  if (allFields.empty()) {
     os << "mlir::MLIRContext* context";
   } else {
-    interleaveComma(structAttr.getAllFields(), os, [&](StructFieldAttr field) {
+    interleaveComma(allFields, os, [&](const StructFieldAttr &field) {
       auto type = field.getType();
       os << formatv("\n      {0} {1}", type.getStorageType(), field.getName());
     });
   }
   os << ");\n\n";
 
-  // Attribute return type constructor (APInt, etc).
-  if (!structAttr.getAllFields().empty()) {
-    os << formatv("  static {0} get(\n", structAttr.getStructClassName());
-    for (auto field : structAttr.getAllFields()) {
-      auto type = field.getType();
-      os << formatv("      {0} {1},\n", type.getReturnType(), field.getName());
+  // Array attributes' builders and accessors do not take/return values of
+  // matched types, e.g., ArrayRef vs. some range object.  So we cannot generate
+  // handy builders if this attribute contains array attributes.
+  if (llvm::none_of(allFields, [](const StructFieldAttr &field) {
+        return field.getType().isSubClassOf("TypedArrayAttrBase");
+      })) {
+    // Attribute return type constructor (APInt, etc).
+    if (!allFields.empty()) {
+      os << formatv("  static {0} get(\n", structAttr.getStructClassName());
+      for (const auto &field : allFields) {
+        auto type = field.getType();
+        os << formatv("      {0} {1},\n", type.getReturnType(),
+                      field.getName());
+      }
+      os << "      mlir::MLIRContext* context);\n";
     }
-    os << "      mlir::MLIRContext* context);\n";
   }
 
   os << R"(
@@ -156,7 +166,7 @@ class {1} : public mlir::Attribute::AttrBase<{1}, mlir::Attribute, {3}Storage> {
 
 )";
 
-  for (auto field : structAttr.getAllFields()) {
+  for (const auto &field : allFields) {
     auto type = field.getType();
     // Attribute storage type accessors (IntegerAttr, etc).
     os << formatv("  {0} {1}Attr() const;\n", type.getStorageType(),
@@ -354,9 +364,20 @@ static std::string replaceAllSubstrs(std::string str, const std::string &match,
 }
 
 static void emitTypedFactoryDef(const StructAttr &structAttr, raw_ostream &os) {
+  std::vector<StructFieldAttr> allFields = structAttr.getAllFields();
+
+  // Array attributes' builders and accessors do not take/return values of
+  // matched types, e.g., ArrayRef vs. some range object.  So we cannot generate
+  // handy builders if this attribute contains array attributes.
+  if (llvm::any_of(allFields, [](const StructFieldAttr &field) {
+        return field.getType().isSubClassOf("TypedArrayAttrBase");
+      })) {
+    return;
+  }
+
   os << "// static\n";
   os << formatv("{0} {0}::get(", structAttr.getStructClassName());
-  for (auto field : structAttr.getAllFields()) {
+  for (const StructFieldAttr &field : allFields) {
     auto type = field.getType();
     os << formatv("\n    {0} {1},", type.getReturnType(), field.getName());
   }
@@ -365,7 +386,7 @@ static void emitTypedFactoryDef(const StructAttr &structAttr, raw_ostream &os) {
 
   FmtContext ctx;
   ctx.withBuilder("b");
-  for (auto field : structAttr.getAllFields()) {
+  for (const StructFieldAttr &field : allFields) {
     auto type = field.getType();
 
     // For StringAttr, its constant builder call will wrap the input in

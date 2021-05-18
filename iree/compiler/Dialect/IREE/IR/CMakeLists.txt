@@ -48,6 +48,28 @@ iree_tablegen_library(
 
 iree_tablegen_library(
   NAME
+    IREECodeGenAttrsGen
+  TD_FILE
+    "IREECodeGenAttributes.td"
+  OUTS
+    -gen-iree-struct-attr-decls IREECodeGenAttributes.h.inc
+    -gen-iree-struct-attr-defs IREECodeGenAttributes.cpp.inc
+  TBLGEN
+    IREE
+)
+
+iree_tablegen_library(
+  NAME
+    IREECodeGenEnumsGen
+  TD_FILE
+    "IREECodeGenAttributes.td"
+  OUTS
+    -gen-enum-decls IREECodeGenEnums.h.inc
+    -gen-enum-defs IREECodeGenEnums.cpp.inc
+)
+
+iree_tablegen_library(
+  NAME
     IREEOpsGen
   TD_FILE
     "IREEOps.td"
