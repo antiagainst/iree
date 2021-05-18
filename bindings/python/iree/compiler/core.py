@@ -76,6 +76,8 @@ class CompilerOptions:
     output_format: Override the output format. See the OutputFormat enum.
       Values can either be an enum value or a case-insensitive name of
       the option. Typically used for debugging
+    pre_passes: Optional list of additional passes that should be run before
+      the main translation pass.
     extra_args: Optional list of additional arguments to pass to the compiler.
       Example: ["--print-ir-after-all"]
     optimize: Whether to apply some default high level optimizations (default
@@ -105,6 +107,7 @@ class CompilerOptions:
                target_backends: Sequence[str] = (),
                output_format: Union[OutputFormat,
                                     str] = OutputFormat.FLATBUFFER_BINARY,
+               pre_passes: Sequence[str] = (),
                extra_args: Sequence[str] = (),
                optimize: bool = True,
                output_mlir_debuginfo: bool = True,
@@ -119,6 +122,7 @@ class CompilerOptions:
     self.output_file = output_file
     self.target_backends = target_backends
     self.output_format = OutputFormat.parse(output_format)
+    self.pre_passes = pre_passes
     self.extra_args = extra_args
     self.optimize = optimize
     self.output_mlir_debuginfo = output_mlir_debuginfo
@@ -157,6 +161,9 @@ def build_compile_command_line(input_file: str,
   # Output file.
   if options.output_file:
     cl.append(f"-o={options.output_file}")
+
+  # Include passes that should be run before translation.
+  cl.extend(options.pre_passes)
 
   # Translation to perform.
   cl.append("--iree-mlir-to-vm-bytecode-module")
