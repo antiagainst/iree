@@ -550,6 +550,7 @@ static LogicalResult setMaliSpecificConfig(
       {{2, 2, 32}, {8, 2, 2}},
       {{1, 4, 16}, {4, 4, 1}},
       {{1, 1, 64}, {16, 1, 1}},
+      {{4, 4, 8}, {2, 4, 2}},
   };
 
   for (const auto &pair : tileWorkgroupSizePairs) {

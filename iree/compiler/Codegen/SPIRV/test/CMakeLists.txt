@@ -17,6 +17,7 @@ iree_lit_test_suite(
     "convert_to_gpu.mlir"
     "convert_to_spirv.mlir"
     "fold_gpu_procid_uses.mlir"
+    "pipeline_fused_conv_elementwise.mlir"
     "pipeline_matmul_cooperative_matrix.mlir"
     "pipeline_matmul_vectorization.mlir"
     "promote_workgroup_memory.mlir"

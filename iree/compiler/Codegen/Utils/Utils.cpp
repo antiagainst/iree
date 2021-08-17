@@ -11,6 +11,7 @@
 #include "iree/compiler/Dialect/LinalgExt/IR/LinalgExtOps.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/TypeSwitch.h"
+#include "mlir/Dialect/Linalg/IR/LinalgOps.h"
 #include "mlir/Dialect/Linalg/Utils/Utils.h"
 #include "mlir/IR/SymbolTable.h"
 
@@ -171,17 +172,52 @@ ArrayRef<int64_t> getUntiledResultShape(linalg::LinalgOp linalgOp,
   ArrayRef<int64_t> outputShape =
       getUntiledShape(linalgOp.outputs()[resultNum]);
   if (!llvm::any_of(outputShape, ShapedType::isDynamic)) return outputShape;
-  // Try to use the result value and check if the untiled shape can be obtained
-  // based on the uses.
-  Value result = linalgOp->getResult(resultNum);
-  for (Operation *user : result.getUsers()) {
-    if (auto storeOp = dyn_cast<IREE::Flow::DispatchTensorStoreOp>(user)) {
+
+  auto getDispatchTensorStoreShape =
+      [](Operation *op) -> Optional<ArrayRef<int64_t>> {
+    if (auto storeOp = dyn_cast<IREE::Flow::DispatchTensorStoreOp>(op)) {
       return storeOp.target()
           .getType()
           .cast<IREE::Flow::DispatchTensorType>()
           .getShape();
     }
+    return llvm::None;
+  };
+
+  // Try to use the result value and check if the untiled shape can be obtained
+  // based on the uses.
+  Value result = linalgOp->getResult(resultNum);
+  for (Operation *user : result.getUsers()) {
+    auto storeShape = getDispatchTensorStoreShape(user);
+    if (storeShape.hasValue()) return storeShape.getValue();
   }
+
+  // Go another step further to see if the user is a generic op, given it's
+  // common to see fused consumer element ops in models. If so, try to inspect
+  // the generic op's result shape.
+  for (auto &use : result.getUses()) {
+    Operation *user = use.getOwner();
+    auto genericOp = dyn_cast<linalg::GenericOp>(user);
+    if (!genericOp) continue;
+    AffineMap operandMap = genericOp.getTiedIndexingMap(&use);
+
+    for (auto outputAndResult :
+         llvm::zip(genericOp.getOutputOperands(), genericOp.getResults())) {
+      OpOperand *genericOutput = std::get<0>(outputAndResult);
+      Value genericResult = std::get<1>(outputAndResult);
+
+      // Check the generic op operand and result have the same indexing map.
+      // This guarantees that we can deduce the operand's shape from the result.
+      AffineMap resultMap = genericOp.getTiedIndexingMap(genericOutput);
+      if (resultMap != operandMap) continue;
+
+      for (Operation *genericUser : genericResult.getUsers()) {
+        auto storeShape = getDispatchTensorStoreShape(genericUser);
+        if (storeShape.hasValue()) return storeShape.getValue();
+      }
+    }
+  }
+
   return result.getType().cast<ShapedType>().getShape();
 }
 
