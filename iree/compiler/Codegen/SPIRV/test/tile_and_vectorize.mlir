@@ -149,7 +149,7 @@ hal.executable @conv_1d attributes {sym_visibility = "private"} {
 //       CHECK:     %[[ARG0SV2:.+]] = memref.subview %[[ARG0SV1]][%[[TIDZ]], %[[IV0]], 0] [1, %{{.+}}, 1]
 //       CHECK:     %[[ARG1SV2:.+]] = memref.subview %[[ARG1SV1]][0, 0, %[[IV1]]] [3, 1, 1]
 //       CHECK:     %[[RETSV2:.+]] = memref.subview %[[RETSV1]][%[[TIDZ]], %[[IV0]], %[[IV1]]] [1, 1, 1]
-//       CHECK:     linalg.conv_1d_input_nwc_filter_wcf
+//       CHECK:     linalg.conv_1d_nwc_wcf
 //  CHECK-SAME:       __internal_linalg_transform__ = "vectorize"
 //  CHECK-SAME:       ins(%[[ARG0SV2]], %[[ARG1SV2]]
 //  CHECK-SAME:       outs(%[[RETSV2]]
