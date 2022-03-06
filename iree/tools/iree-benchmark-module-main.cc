@@ -21,6 +21,7 @@
 #include "iree/base/tracing.h"
 #include "iree/hal/api.h"
 #include "iree/hal/drivers/init.h"
+#include "iree/hal/support/profiler.h"
 #include "iree/modules/hal/module.h"
 #include "iree/tools/utils/vm_util.h"
 #include "iree/vm/api.h"
@@ -303,6 +304,8 @@ int main(int argc, char** argv) {
                            &argc, &argv);
   ::benchmark::Initialize(&argc, argv);
 
+  IREE_CHECK_OK(iree_hal_support_profiler_attach());
+
   IREE_CHECK_OK(iree_hal_register_all_available_drivers(
       iree_hal_driver_registry_default()));
 
@@ -314,5 +317,8 @@ int main(int argc, char** argv) {
     return ret;
   }
   ::benchmark::RunSpecifiedBenchmarks();
+
+  iree_hal_support_profiler_detach();
+
   return 0;
 }

@@ -19,6 +19,7 @@ include(CMakeParseArguments)
 # DEPS: List of other libraries to be linked in to the binary targets
 # COPTS: List of private compile options
 # DEFINES: List of public defines
+# LOCAL_DEFINES: List of private defines
 # INCLUDES: Include directories to add to dependencies
 # LINKOPTS: List of link options
 # PUBLIC: Add this so that this library will be exported under iree::
@@ -62,7 +63,7 @@ function(iree_cc_library)
     _RULE
     "PUBLIC;TESTONLY;SHARED"
     "NAME"
-    "HDRS;TEXTUAL_HDRS;SRCS;COPTS;DEFINES;LINKOPTS;DATA;DEPS;INCLUDES"
+    "HDRS;TEXTUAL_HDRS;SRCS;COPTS;DEFINES;LOCAL_DEFINES;LINKOPTS;DATA;DEPS;INCLUDES"
     ${ARGN}
   )
 
@@ -139,6 +140,8 @@ function(iree_cc_library)
     target_compile_definitions(${_OBJECTS_NAME}
       PUBLIC
         $<TARGET_PROPERTY:${_NAME},INTERFACE_COMPILE_DEFINITIONS>
+      PRIVATE
+        $<TARGET_PROPERTY:${_NAME},COMPILE_DEFINITIONS>
     )
     target_link_libraries(${_OBJECTS_NAME}
       PUBLIC
@@ -171,8 +174,8 @@ function(iree_cc_library)
 
     iree_add_data_dependencies(NAME ${_NAME} DATA ${_RULE_DATA})
     target_compile_definitions(${_NAME}
-      PUBLIC
-        ${_RULE_DEFINES}
+      PUBLIC ${_RULE_DEFINES}
+      PRIVATE ${_RULE_LOCAL_DEFINES}
     )
 
     # Add all IREE targets to a folder in the IDE for organization.

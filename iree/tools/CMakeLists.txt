@@ -79,6 +79,7 @@ iree_cc_binary(
     iree::base::tracing
     iree::hal
     iree::hal::drivers
+    iree::hal::support::profiler
     iree::modules::hal
     iree::tools::utils::vm_util
     iree::vm

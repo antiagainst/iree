@@ -189,6 +189,7 @@ iree_fix_ndebug()
 
 list(APPEND CMAKE_MODULE_PATH
   ${CMAKE_CURRENT_LIST_DIR}/build_tools/cmake/
+  ${CMAKE_CURRENT_LIST_DIR}/build_tools/cmake/modules/
   ${CMAKE_CURRENT_LIST_DIR}/bindings/python/build_tools/cmake/
 )
 
@@ -516,6 +517,21 @@ if(IREE_TARGET_BACKEND_WEBGPU)
   add_subdirectory(third_party/spirv_headers EXCLUDE_FROM_ALL)
   add_subdirectory(build_tools/third_party/spirv-tools EXCLUDE_FROM_ALL)
   add_subdirectory(build_tools/third_party/tint EXCLUDE_FROM_ALL)
+endif()
+
+#-------------------------------------------------------------------------------
+# Development tool dependencies
+#-------------------------------------------------------------------------------
+
+# Try to find vendor-specific tools for development.
+
+# NVIDIA Nsight Graphics
+cmake_dependent_option(
+  IREE_VULKAN_ENABLE_NSIGHT_GRAPHICS
+  "Enable Nsight Graphics SDK integration"
+  ON ${IREE_HAL_DRIVER_VULKAN} OFF)
+if(IREE_VULKAN_ENABLE_NSIGHT_GRAPHICS)
+  find_package(NsightGraphics REQUIRED)
 endif()
 
 #-------------------------------------------------------------------------------
