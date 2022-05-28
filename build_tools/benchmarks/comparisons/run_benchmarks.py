@@ -28,6 +28,9 @@ import os
 from common.benchmark_runner import *
 from common.utils import *
 from mobilebert_fp32_commands import *
+from mobilenetv2_fp32_commands import *
+from posenet_fp32_commands import *
+from deeplabv3_fp32_commands import *
 
 
 def benchmark_desktop_cpu(device_name: str,
@@ -99,6 +102,9 @@ def main(args):
   # Create factories for all models to be benchmarked.
   command_factory = []
   command_factory.append(MobilebertFP32CommandFactory(args.base_dir))
+  command_factory.append(PoseNetFP32CommandFactory(args.base_dir))
+  command_factory.append(DeepLabV3FP32CommandFactory(args.base_dir))
+  command_factory.append(MobileNetV2FP32CommandFactory(args.base_dir))
 
   if args.mode == "desktop":
     results_path = os.path.join(args.output_dir, "results.csv")
