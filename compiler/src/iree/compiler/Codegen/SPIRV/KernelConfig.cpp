@@ -237,6 +237,8 @@ LogicalResult setMatmulOpConfig(linalg::LinalgOp op, int64_t subgroupSize,
   }
   if (workgroupTileSizes[1 + isBM] == 0) return success();
 
+  if (useWorkgroupMemory) residualThreads = std::min(residualThreads, bestY);
+
   // Deduce the configuration for the M dimension. Start with the best workgroup
   // Y size, and reduce by a factor of two each time.
   for (int64_t y = residualThreads; y >= 1; y >>= 1) {
@@ -461,16 +463,24 @@ static LogicalResult setDefaultOpConfig(spirv::ResourceLimitsAttr limits,
           int64_t idleThreads = candidate - (loopBound % candidate);
           if (idleThreads > candidate / *lossFactor) continue;
         }
+        if (partitionedLoops.size() == 1 &&
+            llvm::divideCeil(loopBound, candidate) <= 2) {
+          continue;
+        }
 
         // Found a suitable candidate. Try to let each thread handle 4
         // elements if this is the workgroup x dimension.
         workgroupTileSizes[shapeDim] = candidate;
         LLVM_DEBUG(llvm::dbgs() << "Chosen tile size: " << candidate << "\n");
         if (vectorizable && wgDim == 0 && !lossFactor && candidate % 4 == 0) {
-          threadTileSizes[shapeDim] = 4;
-          workgroupSize[wgDim] = candidate / 4;
-          assert(numThreads % (candidate / 4) == 0);
-          numThreads /= candidate / 4;
+          bool hasIdleThreads =
+              partitionedLoops.size() == 1 && candidate <= subgroupSize;
+          int vectorSize = hasIdleThreads ? 1 : 4;
+          LLVM_DEBUG(llvm::dbgs() << "Use vector size: " << vectorSize << "\n");
+          threadTileSizes[shapeDim] = vectorSize;
+          workgroupSize[wgDim] = candidate / vectorSize;
+          assert(numThreads % (candidate / vectorSize) == 0);
+          numThreads /= candidate / vectorSize;
         } else {
           if (wgDim == 0) vectorizable = false;
           threadTileSizes[shapeDim] = 1;
