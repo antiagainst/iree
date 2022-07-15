@@ -239,12 +239,11 @@ class Mmt4DTileParams {
 // Converts linalg.matmul to an equivalent subgraph using linalg.mmt4d.
 // Currently, M0, N0, K0 are compile time constants.
 // TODO(ataei): Move this pattern to linalg transforms upstream.
-class LinalgMatmulOpToLinalgMmt4DOpPattern
-    : public OpRewritePattern<linalg::MatmulOp> {
+class Convert2DMatmulTo4DPattern : public OpRewritePattern<linalg::MatmulOp> {
  public:
-  LinalgMatmulOpToLinalgMmt4DOpPattern(
-      MLIRContext *context, const CustomKernelsTargetInfo &targetInfo,
-      bool enableGenericSlow)
+  Convert2DMatmulTo4DPattern(MLIRContext *context,
+                             const CustomKernelsTargetInfo &targetInfo,
+                             bool enableGenericSlow)
       : OpRewritePattern<linalg::MatmulOp>(context),
         targetInfo(targetInfo),
         enableGenericSlow(enableGenericSlow) {}
@@ -278,6 +277,8 @@ class LinalgMatmulOpToLinalgMmt4DOpPattern
     }
     const Mmt4DTileParams &tileParams = maybeTileParams.getValue();
 
+    bool transposeLHS = StringRef(tileParams.getComment()).endswith("valhall");
+
     Value paddedLhs = pad(loc, rewriter, lhs, tileParams.lhs());
     Value paddedRhs = pad(loc, rewriter, rhs, tileParams.rhs());
     Value paddedAcc = pad(loc, rewriter, acc, tileParams.acc());
@@ -286,17 +287,31 @@ class LinalgMatmulOpToLinalgMmt4DOpPattern
     Value rhs4D = expandTo4D(loc, rewriter, paddedRhs, tileParams.rhs());
     Value acc4D = expandTo4D(loc, rewriter, paddedAcc, tileParams.acc());
 
-    Value lhs4DT = transpose(loc, rewriter, lhs4D, {0, 2, 1, 3});
-    Value rhs4DT = transpose(loc, rewriter, rhs4D, {2, 0, 3, 1});
+    Value lhs4DT, rhs4DT;
+    if (transposeLHS) {
+      lhs4DT = transpose(loc, rewriter, lhs4D, {0, 2, 3, 1});
+      rhs4DT = transpose(loc, rewriter, rhs4D, {2, 0, 1, 3});
+    } else {
+      lhs4DT = transpose(loc, rewriter, lhs4D, {0, 2, 1, 3});
+      rhs4DT = transpose(loc, rewriter, rhs4D, {2, 0, 3, 1});
+    }
     Value acc4DT = transpose(loc, rewriter, acc4D, {0, 2, 1, 3});
 
-    auto mmt4d = rewriter.create<linalg::Mmt4DOp>(
-        loc, acc4DT.getType(), ValueRange{lhs4DT, rhs4DT}, ValueRange{acc4DT});
-    mmt4d->setAttr(StringAttr::get(getContext(), "comment"),
-                   StringAttr::get(getContext(), tileParams.getComment()));
+    Operation *result4D;
+    if (transposeLHS) {
+      result4D = rewriter.create<linalg::Mtm4DOp>(loc, acc4DT.getType(),
+                                                  ValueRange{lhs4DT, rhs4DT},
+                                                  ValueRange{acc4DT});
+    } else {
+      result4D = rewriter.create<linalg::Mmt4DOp>(loc, acc4DT.getType(),
+                                                  ValueRange{lhs4DT, rhs4DT},
+                                                  ValueRange{acc4DT});
+    }
+    result4D->setAttr(StringAttr::get(getContext(), "comment"),
+                      StringAttr::get(getContext(), tileParams.getComment()));
 
     Value mmt4dResultTransposed =
-        transpose(loc, rewriter, mmt4d.getResult(0), {0, 2, 1, 3});
+        transpose(loc, rewriter, result4D->getResult(0), {0, 2, 1, 3});
 
     Value paddedResult =
         collapseTo2D(loc, rewriter, mmt4dResultTransposed,
@@ -318,9 +333,8 @@ class LinalgMatmulOpToLinalgMmt4DOpPattern
   bool enableGenericSlow;
 };
 
-llvm::Optional<Mmt4DTileParams>
-LinalgMatmulOpToLinalgMmt4DOpPattern::chooseTileParams(Value lhs, Value rhs,
-                                                       Value acc) const {
+llvm::Optional<Mmt4DTileParams> Convert2DMatmulTo4DPattern::chooseTileParams(
+    Value lhs, Value rhs, Value acc) const {
   ShapedType lhsType = lhs.getType().cast<ShapedType>();
   ShapedType rhsType = rhs.getType().cast<ShapedType>();
   ShapedType accType = acc.getType().cast<ShapedType>();
@@ -332,7 +346,6 @@ LinalgMatmulOpToLinalgMmt4DOpPattern::chooseTileParams(Value lhs, Value rhs,
   auto chooseMatMulOrMatVec = [=](ArrayRef<int> m0k0n0,
                                   ArrayRef<int> m0k0n0ForMatVec,
                                   std::string comment) {
-    assert(m0k0n0ForMatVec[2] == 1 && "not a matrix*vector shape");
     if (shapeN == 1) {
       return Mmt4DTileParams(m0k0n0ForMatVec, comment + ", matrix*vector");
     } else if (shapeM == 1) {
@@ -363,6 +376,11 @@ LinalgMatmulOpToLinalgMmt4DOpPattern::chooseTileParams(Value lhs, Value rhs,
     if (lhsElemType.isF32() && rhsElemType.isF32() && accElemType.isF32()) {
       return chooseMatMulOrMatVec({8, 1, 8}, {8, 1, 1},
                                   "f32*f32->f32, aarch64");
+    }
+  } else if (targetInfo.is(CustomKernelTargetArch::Valhall)) {
+    if (lhsElemType.isF32() && rhsElemType.isF32() && accElemType.isF32()) {
+      return chooseMatMulOrMatVec({8, 4, 32}, {8, 4, 8},
+                                  "f32*f32->f32, valhall");
     }
   }
   // enableGenericSlow is meant for tests only. It's just a way to get some
@@ -439,8 +457,8 @@ class ConvertLinalgMatmulToMmt4DPass final
     // Main pattern.
     {
       RewritePatternSet patterns(&getContext());
-      patterns.insert<LinalgMatmulOpToLinalgMmt4DOpPattern>(context, targetInfo,
-                                                            enableGenericSlow);
+      patterns.insert<Convert2DMatmulTo4DPattern>(context, targetInfo,
+                                                  enableGenericSlow);
       if (failed(applyPatternsAndFoldGreedily(getOperation(),
                                               std::move(patterns)))) {
         return signalPassFailure();

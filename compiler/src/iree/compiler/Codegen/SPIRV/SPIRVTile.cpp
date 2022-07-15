@@ -53,8 +53,9 @@ static void populateTilingReductionPatterns(RewritePatternSet &patterns) {
 
   linalg::TilingPatterns<linalg::BatchMatmulOp, linalg::Conv2DNhwcHwcfOp,
                          linalg::DepthwiseConv2DNhwcHwcOp, linalg::GenericOp,
-                         linalg::MatmulOp>::insert(patterns, tilingOptions,
-                                                   filter);
+                         linalg::MatmulOp, linalg::Mmt4DOp,
+                         linalg::Mtm4DOp>::insert(patterns, tilingOptions,
+                                                  filter);
 }
 
 /// Gets the given `attrOrValue` as an index value by creating constant ops
@@ -217,11 +218,16 @@ class SPIRVTilePass final : public SPIRVTileBase<SPIRVTilePass> {
       OpBuilder builder(context);
       SmallVector<int64_t> tileSizes = getTileSizes(consumerOp, 1);
       auto identityLoopOrder =
-          llvm::to_vector<4>(llvm::seq<int64_t>(0, tileSizes.size()));
+          llvm::to_vector(llvm::seq<int64_t>(0, tileSizes.size()));
+      SmallVector<int64_t> mmt4dLoopOrder = {0, 1, 3, 4, 2, 5};
+      ArrayRef<int64_t> loopOrder =
+          isa<linalg::Mmt4DOp, linalg::Mtm4DOp>(computeOp)
+              ? llvm::makeArrayRef(mmt4dLoopOrder)
+              : llvm::makeArrayRef(identityLoopOrder);
 
       FailureOr<linalg::TileLoopNest> loopNest =
           linalg::tileConsumerAndFuseProducers(builder, consumerOp, tileSizes,
-                                               identityLoopOrder, llvm::None);
+                                               loopOrder, llvm::None);
       if (failed(loopNest)) {
         consumerOp.emitOpError("failed tiling and fusing producers");
         return signalPassFailure();

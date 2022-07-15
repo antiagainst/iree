@@ -768,6 +768,8 @@ class MMTKernelGenerator {
         return "w";
       case CustomKernelTargetArch::None:
         break;
+      case CustomKernelTargetArch::Valhall:
+        break;
     }
     assert(false && "Unhandled CustomKernelTargetArch value");
     return {};
