@@ -43,6 +43,11 @@ LogicalResult ParseCustomKernelsTargetInfo(
     return success();
   }
 
+  if (archStr == "valhall") {
+    targetInfo.init(CustomKernelTargetArch::Valhall);
+    return success();
+  }
+
   llvm::SmallVector<llvm::StringRef> features;
   featuresStr.split(features, ',');
 

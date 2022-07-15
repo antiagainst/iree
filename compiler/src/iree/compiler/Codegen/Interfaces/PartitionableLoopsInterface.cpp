@@ -97,6 +97,26 @@ struct Mmt4DOpPartitionableLoops
   }
 };
 
+/// External model implementation for linalg::Mtm4DOp.
+struct Mtm4DOpPartitionableLoops
+    : public PartitionableLoopsInterface::ExternalModel<
+          Mtm4DOpPartitionableLoops, linalg::Mtm4DOp> {
+  unsigned getNumLoops(Operation *op) const {
+    auto linalgOp = cast<linalg::LinalgOp>(op);
+    return linalgOp.getNumLoops();
+  }
+
+  llvm::SmallVector<unsigned> getPartitionableLoops(
+      Operation *op, unsigned maxNumPartitionedLoops) const {
+    return {0, 1};
+  }
+
+  llvm::SmallVector<StringRef> getIteratorTypes(Operation *op) const {
+    return getIteratorTypesFromAttr(
+        cast<linalg::LinalgOp>(op).iterator_types());
+  }
+};
+
 /// External model implementation for all operations to make only
 /// the outer parallel loops as partitionable.
 template <typename OpTy>
@@ -221,6 +241,11 @@ static void registerInterfaceForLinalgOps(MLIRContext *ctx) {
 template <>
 void registerInterfaceForLinalgOps<linalg::Mmt4DOp>(MLIRContext *ctx) {
   linalg::Mmt4DOp::attachInterface<Mmt4DOpPartitionableLoops>(*ctx);
+}
+
+template <>
+void registerInterfaceForLinalgOps<linalg::Mtm4DOp>(MLIRContext *ctx) {
+  linalg::Mtm4DOp::attachInterface<Mtm4DOpPartitionableLoops>(*ctx);
 }
 
 /// Registers the external models for all Linalg operations.

@@ -293,6 +293,21 @@ LogicalResult setMatmulOpConfig(linalg::LinalgOp op, int64_t subgroupSize,
       workgroupSize);
 }
 
+static LogicalResult set4DMatmulOpConfig(spirv::ResourceLimitsAttr limits,
+                                         Operation *op) {
+  auto pipeline = IREE::Codegen::DispatchLoweringPassPipeline::SPIRVVectorize;
+
+  SmallVector<int64_t, 3> workgroupSize = {8, 2, 1};  // (x, y, z)
+  TileSizesListType tileSizes;
+  tileSizes.push_back({1, 1, 0, 0, 0, 0});  // (m1, n1, k1, m0, n0, k0)
+  tileSizes.push_back({0, 0, 0, 8, 4, 0});
+  tileSizes.push_back({0, 0, 1, 0, 0, 0});
+
+  return setOpConfigAndEntryPointFnTranslation(
+      op->getParentOfType<func::FuncOp>(), op, tileSizes, pipeline,
+      workgroupSize);
+}
+
 }  // namespace detail
 
 //===----------------------------------------------------------------------===//
@@ -595,6 +610,14 @@ static LogicalResult setSPIRVOpConfig(const spirv::TargetEnv &targetEnv,
         std::array<int64_t, 3> threadMNK = {8, 8, 4};
         auto result = detail::setMatmulOpConfig(op, /*subgroupSize=*/32,
                                                 workgroupXY, threadMNK);
+        if (failed(result)) return result;
+        if (getLoweringConfig(op)) return result;
+
+        // If unsuccessful, try to tile and distribute.
+        return setDefaultOpConfig(limits, op);
+      })
+      .Case<linalg::Mmt4DOp, linalg::Mtm4DOp>([limits](auto op) {
+        auto result = detail::set4DMatmulOpConfig(limits, op);
         if (failed(result)) return result;
         if (getLoweringConfig(op)) return result;
 

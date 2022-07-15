@@ -26,6 +26,7 @@
 #include "iree/compiler/Dialect/HAL/IR/HALDialect.h"
 #include "iree/compiler/Dialect/HAL/IR/HALOps.h"
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Debug.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
@@ -41,7 +42,7 @@ namespace iree_compiler {
 /// Find the root operation of the dispatch, the one (and preferably only one)
 /// that has a lowering configuration.
 static FailureOr<Operation *> getRootOp(ArrayRef<Operation *> computeOps) {
-  for (auto op : computeOps) {
+  for (auto op : llvm::reverse(computeOps)) {
     IREE::Codegen::LoweringConfigAttr loweringConfig = getLoweringConfig(op);
     if (!loweringConfig) continue;
     return op;
