@@ -301,7 +301,7 @@ static LogicalResult set4DMatmulOpConfig(spirv::ResourceLimitsAttr limits,
   TileSizesListType tileSizes;
   tileSizes.push_back({1, 1, 0, 0, 0, 0});  // (m1, n1, k1, m0, n0, k0)
   tileSizes.push_back({0, 0, 0, 4, 4, 0});
-  tileSizes.push_back({0, 0, 1, 0, 0, 0});
+  tileSizes.push_back({0, 0, 4, 0, 0, 0});
 
   return setOpConfigAndEntryPointFnTranslation(
       op->getParentOfType<func::FuncOp>(), op, tileSizes, pipeline,

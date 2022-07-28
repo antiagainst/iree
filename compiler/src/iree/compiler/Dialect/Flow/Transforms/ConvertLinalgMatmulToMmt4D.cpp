@@ -277,8 +277,6 @@ class Convert2DMatmulTo4DPattern : public OpRewritePattern<linalg::MatmulOp> {
     }
     const Mmt4DTileParams &tileParams = maybeTileParams.getValue();
 
-    bool transposeLHS = StringRef(tileParams.getComment()).endswith("valhall");
-
     Value paddedLhs = pad(loc, rewriter, lhs, tileParams.lhs());
     Value paddedRhs = pad(loc, rewriter, rhs, tileParams.rhs());
     Value paddedAcc = pad(loc, rewriter, acc, tileParams.acc());
@@ -287,26 +285,12 @@ class Convert2DMatmulTo4DPattern : public OpRewritePattern<linalg::MatmulOp> {
     Value rhs4D = expandTo4D(loc, rewriter, paddedRhs, tileParams.rhs());
     Value acc4D = expandTo4D(loc, rewriter, paddedAcc, tileParams.acc());
 
-    Value lhs4DT, rhs4DT;
-    if (transposeLHS) {
-      lhs4DT = transpose(loc, rewriter, lhs4D, {0, 2, 3, 1});
-      rhs4DT = transpose(loc, rewriter, rhs4D, {2, 0, 1, 3});
-    } else {
-      lhs4DT = transpose(loc, rewriter, lhs4D, {0, 2, 1, 3});
-      rhs4DT = transpose(loc, rewriter, rhs4D, {2, 0, 3, 1});
-    }
+    Value lhs4DT = transpose(loc, rewriter, lhs4D, {0, 2, 1, 3});
+    Value rhs4DT = transpose(loc, rewriter, rhs4D, {2, 0, 3, 1});
     Value acc4DT = transpose(loc, rewriter, acc4D, {0, 2, 1, 3});
 
-    Operation *result4D;
-    if (transposeLHS) {
-      result4D = rewriter.create<linalg::Mtm4DOp>(loc, acc4DT.getType(),
-                                                  ValueRange{lhs4DT, rhs4DT},
-                                                  ValueRange{acc4DT});
-    } else {
-      result4D = rewriter.create<linalg::Mmt4DOp>(loc, acc4DT.getType(),
-                                                  ValueRange{lhs4DT, rhs4DT},
-                                                  ValueRange{acc4DT});
-    }
+    Operation *result4D = rewriter.create<linalg::Mmt4DOp>(
+        loc, acc4DT.getType(), ValueRange{lhs4DT, rhs4DT}, ValueRange{acc4DT});
     result4D->setAttr(StringAttr::get(getContext(), "comment"),
                       StringAttr::get(getContext(), tileParams.getComment()));
 
@@ -379,7 +363,7 @@ llvm::Optional<Mmt4DTileParams> Convert2DMatmulTo4DPattern::chooseTileParams(
     }
   } else if (targetInfo.is(CustomKernelTargetArch::Valhall)) {
     if (lhsElemType.isF32() && rhsElemType.isF32() && accElemType.isF32()) {
-      return chooseMatMulOrMatVec({8, 4, 32}, {8, 4, 8},
+      return chooseMatMulOrMatVec({8, 1, 32}, {8, 1, 8},
                                   "f32*f32->f32, valhall");
     }
   }
