@@ -110,7 +110,6 @@ Optional<SmallVector<int64_t, 4>> getNativeVectorShape(Operation *op) {
   } else if (auto transposeOp = dyn_cast<vector::TransposeOp>(op)) {
     auto vectorType = transposeOp.getResultType();
     SmallVector<int64_t, 4> nativeSize(vectorType.getRank(), 1);
-    nativeSize.back() = getComputeVectorSize(vectorType.getShape().back());
     return nativeSize;
   }
   return llvm::None;
@@ -126,12 +125,6 @@ void populateVectorizationPatterns(RewritePatternSet &patterns) {
   patterns.add<LinalgVectorizationPattern>(
       patterns.getContext(), f.addOpFilter<linalg::ContractionOpInterface>(),
       opt);
-  // Additinally pull in patterns to canonicalize transfer ops and to shuffle
-  // broadcast/transpose ops around in order to cancel them or embed into
-  // contract ops. Embedding in the flexible contract ops will help to sustain
-  // the structure through various transformations.
-  vector::populateVectorTransferPermutationMapLoweringPatterns(patterns);
-  vector::populateVectorReductionToContractPatterns(patterns);
 }
 
 /// Adds patterns to unroll vector ops to SPIR-V native vector size.
@@ -169,6 +162,25 @@ class SPIRVVectorizePass : public SPIRVVectorizeBase<SPIRVVectorizePass> {
 
     LLVM_DEBUG({
       llvm::dbgs() << "--- After vectorization ---\n";
+      funcOp.print(llvm::dbgs(), OpPrintingFlags().useLocalScope());
+      llvm::dbgs() << "\n\n";
+    });
+
+    {
+      RewritePatternSet patterns(context);
+      // Additinally pull in patterns to canonicalize transfer ops and to
+      // shuffle broadcast/transpose ops around in order to cancel them or embed
+      // into contract ops. Embedding in the flexible contract ops will help to
+      // sustain the structure through various transformations.
+      vector::populateVectorTransferPermutationMapLoweringPatterns(patterns);
+      vector::populateVectorReductionToContractPatterns(patterns);
+      if (failed(applyPatternsAndFoldGreedily(funcOp, std::move(patterns)))) {
+        return signalPassFailure();
+      }
+    }
+
+    LLVM_DEBUG({
+      llvm::dbgs() << "--- After reduction to contract ---\n";
       funcOp.print(llvm::dbgs(), OpPrintingFlags().useLocalScope());
       llvm::dbgs() << "\n\n";
     });
@@ -254,6 +266,47 @@ class SPIRVVectorizePass : public SPIRVVectorizeBase<SPIRVVectorizePass> {
       llvm::dbgs() << "\n\n";
     });
 
+    // Lower reduction-unrolled vector contract ops. Such contract ops have
+    // their reduction dimensions all be one, so we can convert them into
+    // elementwise ops.
+    {
+      RewritePatternSet patterns(context);
+      auto options =
+          vector::VectorTransformsOptions().setVectorTransformsOptions(
+              vector::VectorContractLowering::ParallelArith);
+      vector::populateVectorContractLoweringPatterns(patterns, options);
+      // The pattern can generate transpose ops. Try to fold it if possible to
+      // avoid lowering them into extract/insert later.
+      vector::TransposeOp::getCanonicalizationPatterns(patterns, context);
+      if (failed(applyPatternsAndFoldGreedily(funcOp, std::move(patterns)))) {
+        return signalPassFailure();
+      }
+    }
+
+    LLVM_DEBUG({
+      llvm::dbgs() << "--- After lowering size-1 reduction contract ops ---\n";
+      funcOp.print(llvm::dbgs(), OpPrintingFlags().useLocalScope());
+      llvm::dbgs() << "\n\n";
+    });
+
+    // Now lower vector transpose.
+    {
+      RewritePatternSet patterns(context);
+      auto options =
+          vector::VectorTransformsOptions().setVectorTransposeLowering(
+              vector::VectorTransposeLowering::EltWise);
+      vector::populateVectorTransposeLoweringPatterns(patterns, options);
+      if (failed(applyPatternsAndFoldGreedily(funcOp, std::move(patterns)))) {
+        return signalPassFailure();
+      }
+    }
+
+    LLVM_DEBUG({
+      llvm::dbgs() << "--- After lowering transpose ops ---\n";
+      funcOp.print(llvm::dbgs(), OpPrintingFlags().useLocalScope());
+      llvm::dbgs() << "\n\n";
+    });
+
     // Next run canonicalization to cast away leading size-1 dimensions. They
     // can be generated from vector unrolling and generally cause issues to
     // cancel corresponding read/write or insert/extract op pairs. This also
@@ -322,29 +375,6 @@ class SPIRVVectorizePass : public SPIRVVectorizeBase<SPIRVVectorizePass> {
 
     LLVM_DEBUG({
       llvm::dbgs() << "--- After lowering transfer ops ---\n";
-      funcOp.print(llvm::dbgs(), OpPrintingFlags().useLocalScope());
-      llvm::dbgs() << "\n\n";
-    });
-
-    // Lower reduction-unrolled vector contract ops. Such contract ops have
-    // their reduction dimensions all be one, so we can convert them into
-    // elementwise ops.
-    {
-      RewritePatternSet patterns(context);
-      auto options =
-          vector::VectorTransformsOptions().setVectorTransformsOptions(
-              vector::VectorContractLowering::ParallelArith);
-      vector::populateVectorContractLoweringPatterns(patterns, options);
-      // The pattern can generate transpose ops. Try to fold it if possible to
-      // avoid lowering them into extract/insert later.
-      vector::TransposeOp::getCanonicalizationPatterns(patterns, context);
-      if (failed(applyPatternsAndFoldGreedily(funcOp, std::move(patterns)))) {
-        return signalPassFailure();
-      }
-    }
-
-    LLVM_DEBUG({
-      llvm::dbgs() << "--- After lowering contract ops ---\n";
       funcOp.print(llvm::dbgs(), OpPrintingFlags().useLocalScope());
       llvm::dbgs() << "\n\n";
     });
