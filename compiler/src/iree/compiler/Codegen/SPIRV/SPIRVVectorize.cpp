@@ -84,10 +84,9 @@ Optional<SmallVector<int64_t, 4>> getNativeVectorShape(Operation *op) {
     }
     return nativeSize;
   } else if (auto contractOp = dyn_cast<vector::ContractionOp>(op)) {
-    unsigned lastParallelDim = 0;
-    for (const auto &it : llvm::enumerate(contractOp.getIteratorTypes())) {
-      if (vector::isParallelIterator(it.value())) lastParallelDim = it.index();
-    }
+    AffineMap resultMap = contractOp.getIndexingMapsArray().back();
+    unsigned lastParallelDim =
+        resultMap.getDimPosition(resultMap.getNumResults() - 1);
     SmallVector<int64_t, 4> nativeSize(contractOp.getIteratorTypes().size(), 1);
     SmallVector<int64_t, 4> bounds;
     contractOp.getIterationBounds(bounds);
@@ -322,7 +321,7 @@ class SPIRVVectorizePass : public SPIRVVectorizeBase<SPIRVVectorizePass> {
       // We need to pull in casting way leading one dims to allow cancelling
       // some read/write ops.
       vector::populateCastAwayVectorLeadingOneDimPatterns(patterns);
-      vector::populateCastAwayVectorTrailingOneDimPatterns(patterns);
+      //vector::populateCastAwayVectorTrailingOneDimPatterns(patterns);
 
       // We may have vector.insert_strided_slice inserting 1-D native vectors
       // into n-D larger vectors with the above. Break that down too. This is a
@@ -421,7 +420,7 @@ class SPIRVVectorizePass : public SPIRVVectorizeBase<SPIRVVectorizePass> {
     {
       RewritePatternSet patterns(context);
       vector::populateCastAwayVectorLeadingOneDimPatterns(patterns);
-      vector::populateCastAwayVectorTrailingOneDimPatterns(patterns);
+      //vector::populateCastAwayVectorTrailingOneDimPatterns(patterns);
       vector::InsertOp::getCanonicalizationPatterns(patterns, context);
       vector::ExtractOp::getCanonicalizationPatterns(patterns, context);
       vector::TransferReadOp::getCanonicalizationPatterns(patterns, context);
