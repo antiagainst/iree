@@ -278,6 +278,9 @@ class SPIRVVectorizePass : public SPIRVVectorizeBase<SPIRVVectorizePass> {
       // The pattern can generate transpose ops. Try to fold it if possible to
       // avoid lowering them into extract/insert later.
       vector::TransposeOp::getCanonicalizationPatterns(patterns, context);
+      // It also generates broadcast/extract ops. Clean up them too.
+      vector::BroadcastOp::getCanonicalizationPatterns(patterns, context);
+      vector::ExtractOp::getCanonicalizationPatterns(patterns, context);
       if (failed(applyPatternsAndFoldGreedily(funcOp, std::move(patterns)))) {
         return signalPassFailure();
       }
@@ -315,37 +318,34 @@ class SPIRVVectorizePass : public SPIRVVectorizeBase<SPIRVVectorizePass> {
     // dimensions across regions.
     {
       RewritePatternSet patterns(context);
+
       // We need to pull in casting way leading one dims to allow cancelling
       // some read/write ops.
       vector::populateCastAwayVectorLeadingOneDimPatterns(patterns);
-      vector::TransferReadOp::getCanonicalizationPatterns(patterns, context);
-      vector::TransferWriteOp::getCanonicalizationPatterns(patterns, context);
-      if (failed(applyPatternsAndFoldGreedily(funcOp, std::move(patterns)))) {
-        return signalPassFailure();
-      }
-    }
+      vector::populateCastAwayVectorTrailingOneDimPatterns(patterns);
 
-    LLVM_DEBUG({
-      llvm::dbgs() << "--- After casting away leading size-1 dims ---\n";
-      funcOp.print(llvm::dbgs(), OpPrintingFlags().useLocalScope());
-      llvm::dbgs() << "\n\n";
-    });
-
-    // Now we may have vector.insert_strided_slice inserting 1-D native vectors
-    // into n-D larger vectors. Break that down too. This is a companion
-    // transformation of unrolling.
-    {
-      RewritePatternSet patterns(context);
+      // We may have vector.insert_strided_slice inserting 1-D native vectors
+      // into n-D larger vectors with the above. Break that down too. This is a
+      // companion transformation of unrolling.
       vector::populateVectorInsertExtractStridedSliceDecompositionPatterns(
           patterns);
       vector::ExtractOp::getCanonicalizationPatterns(patterns, context);
+
+      // Trimming leading/trailing unit dims will generate broadcast/shape_cast
+      // ops. Clean them up.
+      vector::BroadcastOp::getCanonicalizationPatterns(patterns, context);
+      vector::ShapeCastOp::getCanonicalizationPatterns(patterns, context);
+
+      vector::TransferReadOp::getCanonicalizationPatterns(patterns, context);
+      vector::TransferWriteOp::getCanonicalizationPatterns(patterns, context);
+
       if (failed(applyPatternsAndFoldGreedily(funcOp, std::move(patterns)))) {
         return signalPassFailure();
       }
     }
 
     LLVM_DEBUG({
-      llvm::dbgs() << "--- After breaking down n-D inserts/extracts ---\n";
+      llvm::dbgs() << "--- After trimming leading/trailing unit dims ---\n";
       funcOp.print(llvm::dbgs(), OpPrintingFlags().useLocalScope());
       llvm::dbgs() << "\n\n";
     });
@@ -403,10 +403,25 @@ class SPIRVVectorizePass : public SPIRVVectorizeBase<SPIRVVectorizePass> {
       llvm::dbgs() << "\n\n";
     });
 
+    {
+      RewritePatternSet patterns(context);
+      vector::populateVectorInsertExtractStridedSliceTransforms(patterns);
+      if (failed(applyPatternsAndFoldGreedily(funcOp, std::move(patterns)))) {
+        return signalPassFailure();
+      }
+    }
+
+    LLVM_DEBUG({
+      llvm::dbgs() << "--- After converting insert into shuffle ---\n";
+      funcOp.print(llvm::dbgs(), OpPrintingFlags().useLocalScope());
+      llvm::dbgs() << "\n\n";
+    });
+
     // Run all sorts of canonicalization patterns to clean up again.
     {
       RewritePatternSet patterns(context);
       vector::populateCastAwayVectorLeadingOneDimPatterns(patterns);
+      vector::populateCastAwayVectorTrailingOneDimPatterns(patterns);
       vector::InsertOp::getCanonicalizationPatterns(patterns, context);
       vector::ExtractOp::getCanonicalizationPatterns(patterns, context);
       vector::TransferReadOp::getCanonicalizationPatterns(patterns, context);
