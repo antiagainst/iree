@@ -86,8 +86,6 @@ static void populateTilingToInvocationPatterns(
 // Promotion patterns
 //===----------------------------------------------------------------------===//
 
-static const char promoteLHSMarker[] = "promote_lhs";
-static const char promoteRHSMarker[] = "promote_rhs";
 static const char promoteBothMarker[] = "promote_lhs_and_rhs";
 
 LogicalResult copyToWorkgroupMemory(OpBuilder &builder, Value src, Value dst) {
@@ -108,23 +106,11 @@ static void populatePromotionPatterns(RewritePatternSet &patterns,
                                         deallocateWorkgroupMemory)
           .setCopyInOutFns(copyToWorkgroupMemory, copyToWorkgroupMemory)
           .setUseFullTileBuffers({false, false});
-  auto promoteLHSOptions = baseOptions.setOperandsToPromote({0});
-  auto promoteRHSOptions = baseOptions.setOperandsToPromote({1});
   auto promoteBothOptions = baseOptions.setOperandsToPromote({0, 1});
 
-  IREE::LinalgExt::LinalgTransformationFilter promoteLHSFilter(
-      {StringAttr::get(context, promoteLHSMarker)}, replaceMarker);
-  IREE::LinalgExt::LinalgTransformationFilter promoteRHSFilter(
-      {StringAttr::get(context, promoteRHSMarker)}, replaceMarker);
   IREE::LinalgExt::LinalgTransformationFilter promoteBothFilter(
       {StringAttr::get(context, promoteBothMarker)}, replaceMarker);
 
-  patterns.insert<LinalgPromotionPattern<linalg::MatmulOp>,
-                  LinalgPromotionPattern<linalg::BatchMatmulOp>>(
-      patterns.getContext(), promoteLHSOptions, promoteLHSFilter);
-  patterns.insert<LinalgPromotionPattern<linalg::MatmulOp>,
-                  LinalgPromotionPattern<linalg::BatchMatmulOp>>(
-      patterns.getContext(), promoteRHSOptions, promoteRHSFilter);
   patterns.insert<LinalgPromotionPattern<linalg::MatmulOp>,
                   LinalgPromotionPattern<linalg::BatchMatmulOp>>(
       patterns.getContext(), promoteBothOptions, promoteBothFilter);
@@ -193,21 +179,7 @@ void SPIRVTileAndPromotePass::runOnOperation() {
       op->setAttr(IREE::LinalgExt::LinalgTransforms::kLinalgTransformMarker,
                   StringAttr::get(context, getWorkgroupMemoryMarker()));
     } else if (isa<linalg::BatchMatmulOp, linalg::MatmulOp>(op)) {
-      auto lhsShape = op->getOperand(0).getType().cast<ShapedType>().getShape();
-      auto rhsShape = op->getOperand(1).getType().cast<ShapedType>().getShape();
-      bool canPromoteLHS =
-          canPerformVectorAccessUsingAllThreads(lhsShape, flatWorkgroupSize, 4);
-      bool canPromoteRHS =
-          canPerformVectorAccessUsingAllThreads(rhsShape, flatWorkgroupSize, 4);
-      StringAttr promoteMarker =
-          StringAttr::get(context, getWorkgroupMemoryMarker());
-      if (canPromoteLHS && canPromoteRHS) {
-        promoteMarker = StringAttr::get(context, promoteBothMarker);
-      } else if (canPromoteLHS) {
-        promoteMarker = StringAttr::get(context, promoteLHSMarker);
-      } else if (canPromoteRHS) {
-        promoteMarker = StringAttr::get(context, promoteRHSMarker);
-      }
+      StringAttr promoteMarker = StringAttr::get(context, promoteBothMarker);
       op->setAttr(IREE::LinalgExt::LinalgTransforms::kLinalgTransformMarker,
                   promoteMarker);
     }
