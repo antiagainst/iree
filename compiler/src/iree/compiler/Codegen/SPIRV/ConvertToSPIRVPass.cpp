@@ -43,8 +43,10 @@
 #include "mlir/Dialect/Math/Transforms/Passes.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SPIRV/IR/SPIRVDialect.h"
+#include "mlir/Dialect/SPIRV/IR/SPIRVEnums.h"
 #include "mlir/Dialect/SPIRV/IR/SPIRVOps.h"
 #include "mlir/Dialect/SPIRV/IR/SPIRVTypes.h"
+#include "mlir/Dialect/SPIRV/IR/TargetAndABI.h"
 #include "mlir/Dialect/SPIRV/Transforms/SPIRVConversion.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/Builders.h"
@@ -203,8 +205,15 @@ struct HALInterfaceWorkgroupIdAndCountConverter final
     auto i32Type = rewriter.getIntegerType(32);
     Value spirvBuiltin =
         spirv::getBuiltinVariableValue(op, builtin, i32Type, rewriter);
-    rewriter.replaceOpWithNewOp<spirv::CompositeExtractOp>(
-        op, i32Type, spirvBuiltin, rewriter.getI32ArrayAttr({index}));
+    Value result = rewriter.create<spirv::CompositeExtractOp>(
+        op.getLoc(), i32Type, spirvBuiltin, rewriter.getI32ArrayAttr({index}));
+    auto indexType =
+        this->template getTypeConverter<SPIRVTypeConverter>()->getIndexType();
+    if (indexType != i32Type) {
+      result =
+          rewriter.create<spirv::UConvertOp>(op.getLoc(), indexType, result);
+    }
+    rewriter.replaceOp(op, result);
     return success();
   }
 };
@@ -331,10 +340,12 @@ void ConvertToSPIRVPass::runOnOperation() {
   }
 
   spirv::TargetEnvAttr targetAttr = getSPIRVTargetEnvAttr(moduleOp);
+  spirv::TargetEnv targetEnv(targetAttr);
   moduleOp->setAttr(spirv::getTargetEnvAttrName(), targetAttr);
 
   SPIRVConversionOptions options = {};
   options.enableFastMathMode = this->enableFastMath;
+  if (targetEnv.allows(spirv::Capability::Int64)) options.use64bitIndex = true;
   SPIRVTypeConverter typeConverter(targetAttr, options);
   RewritePatternSet patterns(&getContext());
   ScfToSPIRVContext scfToSPIRVContext;
