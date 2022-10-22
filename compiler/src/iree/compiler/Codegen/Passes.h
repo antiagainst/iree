@@ -114,6 +114,10 @@ createTestPartitionableLoopsInterfacePass();
 std::unique_ptr<OperationPass<IREE::HAL::ExecutableVariantOp>>
 createTileAndDistributeToWorkgroupsPass();
 
+/// Create pass to convert conv2d to winograd matmuls/batch matmuls
+std::unique_ptr<OperationPass<func::FuncOp>> 
+createConvertConv2dToWinogradPass();
+
 /// Pass to specialize workgroup distribution loops
 std::unique_ptr<OperationPass<func::FuncOp>>
 createWorkgroupSpecializationPass();
@@ -450,6 +454,12 @@ void addSPIRVCooperativeMatrixVectorizePassPipeline(OpPassManager &pm);
 /// distributing to invocations and vectorizing. Each invocation handles a
 /// vector.
 void addSPIRVMatmulPromoteVectorizePassPipeline(OpPassManager &pm);
+
+/// Pass pipeline to lower IREE HAL executables by tiling and distributing to
+/// workgroups, applying Winograd transforms, promoting to use workgroup memory,
+/// and then tiling and distributing to invocations and vectorizing. 
+/// Each invocation handles a vector.
+void addSPIRVWinogradVectorizePassPipeline(OpPassManager &pm);
 
 /// Pass pipeline to lower IREE HAL executables by tiling and distributing
 /// reduction to workgroups and then subgroups.

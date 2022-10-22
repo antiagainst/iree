@@ -122,6 +122,13 @@ static void addTileAndDistributeToWorkgroupsPasses(
   nestedModulePM.addPass(createCSEPass());
 }
 
+static void addWinogradPasses(OpPassManager &passManager) {
+  auto &nestedModulePM = passManager.nest<ModuleOp>();
+  nestedModulePM.addNestedPass<func::FuncOp>(createConvertConv2dToWinogradPass());
+  nestedModulePM.addPass(createCanonicalizerPass());
+  nestedModulePM.addPass(createCSEPass());
+}
+
 static void addSPIRVBufferizePasses(
     OpPassManager &passManager,
     BufferizationOptions::AllocationFn allocationFn) {
@@ -285,6 +292,36 @@ void addSPIRVCooperativeMatrixVectorizePassPipeline(OpPassManager &pm) {
 
 void addSPIRVMatmulPromoteVectorizePassPipeline(OpPassManager &pm) {
   addTileAndDistributeToWorkgroupsPasses(pm);
+
+  auto &nestedModulePM = pm.nest<ModuleOp>();
+  addBufferizePasses(nestedModulePM, gpuAllocateWorkgroupMemoryFn);
+
+  // Tile and distribute to GPU invocations.
+  nestedModulePM.addNestedPass<func::FuncOp>(createSPIRVTileAndPromotePass());
+  nestedModulePM.addNestedPass<func::FuncOp>(createMemrefCopyToLinalgPass());
+  nestedModulePM.addNestedPass<func::FuncOp>(
+      createGPUDistributeSharedMemoryCopy());
+  nestedModulePM.addPass(createCanonicalizerPass());
+  nestedModulePM.addPass(createCSEPass());
+
+  nestedModulePM.addNestedPass<func::FuncOp>(
+      createRemoveSingleIterationLoopPass());
+
+  nestedModulePM.addNestedPass<func::FuncOp>(createSPIRVVectorizePass());
+  nestedModulePM.addNestedPass<func::FuncOp>(createForOpCanonicalizationPass());
+  nestedModulePM.addPass(createCanonicalizerPass());
+  nestedModulePM.addPass(createCSEPass());
+  nestedModulePM.addNestedPass<func::FuncOp>(
+      createOptimizeVectorTransferPass());
+
+  nestedModulePM.addNestedPass<func::FuncOp>(createGPUPipeliningPass());
+
+  addLoopMaterializationPasses(nestedModulePM);
+}
+
+void addSPIRVWinogradVectorizePassPipeline(OpPassManager &pm) {
+  addTileAndDistributeToWorkgroupsPasses(pm);
+  addWinogradPasses(pm);
 
   auto &nestedModulePM = pm.nest<ModuleOp>();
   addBufferizePasses(nestedModulePM, gpuAllocateWorkgroupMemoryFn);

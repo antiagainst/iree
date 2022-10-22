@@ -112,6 +112,12 @@ def TileAndDistributeToWorkgroups :
   let constructor = "mlir::iree_compiler::createTileAndDistributeToWorkgroupsPass()";
 }
 
+def ConvertConv2dToWinograd :
+    Pass<"iree-codegen-conv2d-to-winograd", "func::FuncOp"> {
+  let summary = "Convert tiled conv2d to winograd variant";
+  let constructor = "mlir::iree_compiler::createConvertConv2dToWinogradPass()";
+}
+
 def WorkgroupSpecialization :
     Pass<"iree-codegen-workgroup-specialization", "func::FuncOp"> {
   let summary = "Specialize workgroup distribution loops";

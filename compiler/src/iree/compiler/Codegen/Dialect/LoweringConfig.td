@@ -47,8 +47,10 @@ def SPIRV_CooperativeMatrixVectorize
     : I32EnumAttrCase<"SPIRVCooperativeMatrixVectorize", 18>;
 def SPIRV_SubgroupReduce
     : I32EnumAttrCase<"SPIRVSubgroupReduce", 19>;
+def SPIRV_WinogradVectorize
+    : I32EnumAttrCase<"SPIRVWinogradVectorize", 20>;
 
-def VMVX_Default : I32EnumAttrCase<"VMVXDefault", 20>;
+def VMVX_Default : I32EnumAttrCase<"VMVXDefault", 21>;
 def None : I32EnumAttrCase<"None", 0xff>;
 
 // EnumAttrCase for all known lowerings for ops within dispatch region
@@ -65,7 +67,7 @@ def DispatchLoweringPassPipelineEnum
                     LLVMGPU_TransposeSharedMem, LLVMGPU_WarpReduction,
                     SPIRV_BaseDistribute, SPIRV_BaseVectorize,
                     SPIRV_MatmulPromoteVectorize, SPIRV_CooperativeMatrixVectorize,
-                    SPIRV_SubgroupReduce,
+                    SPIRV_SubgroupReduce, SPIRV_WinogradVectorize,
                     VMVX_Default, None
                   ]> {
   let cppNamespace = "::mlir::iree_compiler::IREE::Codegen";
