@@ -63,6 +63,7 @@ iree_cc_library(
     "StripSignedness.cpp"
     "TensorPadToTensorInsertSlice.cpp"
     "VerifyInputLegality.cpp"
+    "WinogradPlaceholderOps.cpp"
   DEPS
     ::PassesIncGen
     IREELinalgExtDialect

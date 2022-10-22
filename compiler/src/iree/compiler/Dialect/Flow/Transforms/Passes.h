@@ -78,6 +78,7 @@ std::unique_ptr<Pass> createConvert1X1FilterConv2DToMatmulPass();
 // Creates a pass to convert linalg convolution ops into linalg.matmul ops
 // using im2col tranformation.
 std::unique_ptr<Pass> createConvertConv2DToImg2ColPass();
+std::unique_ptr<Pass> createWinogradPlaceholderOpsPass();
 
 // Creates a pass to convert dispatch.region ops to dispatch.workgroups ops.
 std::unique_ptr<Pass> createConvertRegionToWorkgroupsPass();

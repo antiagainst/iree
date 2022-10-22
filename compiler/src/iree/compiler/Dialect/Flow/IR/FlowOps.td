@@ -1236,7 +1236,7 @@ def FLOW_TensorTraceOp : FLOW_Op<"tensor.trace", []> {
 // Winograd Ops
 //===---------------------------------------------------------------------===//
 
-def FLOW_WinogradInputTransform : FLOW_PureOp<"winograd.input_transform", []> {
+def FLOW_WinogradInputTransformOp : FLOW_PureOp<"winograd.input_transform", []> {
   let summary = [{Applies the winograd input transformation}];
   let description = [{
     Converts the input to the winograd input form.
@@ -1258,7 +1258,7 @@ def FLOW_WinogradInputTransform : FLOW_PureOp<"winograd.input_transform", []> {
   let hasFolder = 0;
 }
 
-def FLOW_WinogradFilterTransform : FLOW_PureOp<"winograd.filter_transform", []> {
+def FLOW_WinogradFilterTransformOp : FLOW_PureOp<"winograd.filter_transform", []> {
   let summary = [{Applies the winograd filter transformation}];
   let description = [{
     Converts the filter to the winograd filter form.
@@ -1280,7 +1280,7 @@ def FLOW_WinogradFilterTransform : FLOW_PureOp<"winograd.filter_transform", []> 
   let hasFolder = 0;
 }
 
-def FLOW_WinogradOutputTransform : FLOW_PureOp<"winograd.output_transform", []> {
+def FLOW_WinogradOutputTransformOp : FLOW_PureOp<"winograd.output_transform", []> {
   let summary = [{Applies the winograd output transformation}];
   let description = [{
     Generates the output from the winograd output form.
@@ -1302,7 +1302,7 @@ def FLOW_WinogradOutputTransform : FLOW_PureOp<"winograd.output_transform", []> 
   let hasFolder = 0;
 }
 
-def FLOW_WinogradBatchMatmul : FLOW_PureOp<"winograd.batch_matmul", []> {
+def FLOW_WinogradBatchMatmulOp : FLOW_PureOp<"winograd.batch_matmul", []> {
   let summary = [{Applies the winograd batch matmul}];
   let description = [{
     Multiplies the transformed input and filter.
@@ -1318,6 +1318,29 @@ def FLOW_WinogradBatchMatmul : FLOW_PureOp<"winograd.batch_matmul", []> {
 
   let assemblyFormat = [{
     attr-dict $input `,` $filter `:` `(` type($input) `,` type($filter) `)` `->` type($result)
+  }];
+
+  let hasVerifier = 0;
+  let hasCanonicalizer = 0;
+  let hasFolder = 0;
+}
+
+def FLOW_WinogradEndOp : FLOW_PureOp<"winograd.end", []> {
+  let summary = [{Marks the end of the winograd transformation}];
+  let description = [{
+    Marks the end of the winograd transformation
+  }];
+
+  let arguments = (ins
+    AnyTensor:$original,
+    AnyTensor:$winograd
+  );
+  let results = (outs
+    AnyTensor:$result
+  );
+
+  let assemblyFormat = [{
+    attr-dict $original `,` $winograd `:` `(` type($original) `,` type($winograd) `)` `->` type($result)
   }];
 
   let hasVerifier = 0;
