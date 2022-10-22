@@ -1233,6 +1233,99 @@ def FLOW_TensorTraceOp : FLOW_Op<"tensor.trace", []> {
 }
 
 //===---------------------------------------------------------------------===//
+// Winograd Ops
+//===---------------------------------------------------------------------===//
+
+def FLOW_WinogradInputTransform : FLOW_PureOp<"winograd.input_transform", []> {
+  let summary = [{Applies the winograd input transformation}];
+  let description = [{
+    Converts the input to the winograd input form.
+  }];
+
+  let arguments = (ins
+    AnyTensor:$input
+  );
+  let results = (outs
+    AnyTensor:$result
+  );
+
+  let assemblyFormat = [{
+    attr-dict $input `:` type($input) `->` type($result)
+  }];
+
+  let hasVerifier = 0;
+  let hasCanonicalizer = 0;
+  let hasFolder = 0;
+}
+
+def FLOW_WinogradFilterTransform : FLOW_PureOp<"winograd.filter_transform", []> {
+  let summary = [{Applies the winograd filter transformation}];
+  let description = [{
+    Converts the filter to the winograd filter form.
+  }];
+
+  let arguments = (ins
+    AnyTensor:$filter
+  );
+  let results = (outs
+    AnyTensor:$result
+  );
+
+  let assemblyFormat = [{
+    attr-dict $filter `:` type($filter) `->` type($result)
+  }];
+
+  let hasVerifier = 0;
+  let hasCanonicalizer = 0;
+  let hasFolder = 0;
+}
+
+def FLOW_WinogradOutputTransform : FLOW_PureOp<"winograd.output_transform", []> {
+  let summary = [{Applies the winograd output transformation}];
+  let description = [{
+    Generates the output from the winograd output form.
+  }];
+
+  let arguments = (ins
+    AnyTensor:$output
+  );
+  let results = (outs
+    AnyTensor:$result
+  );
+
+  let assemblyFormat = [{
+    attr-dict $output `:` type($output) `->` type($result)
+  }];
+
+  let hasVerifier = 0;
+  let hasCanonicalizer = 0;
+  let hasFolder = 0;
+}
+
+def FLOW_WinogradBatchMatmul : FLOW_PureOp<"winograd.batch_matmul", []> {
+  let summary = [{Applies the winograd batch matmul}];
+  let description = [{
+    Multiplies the transformed input and filter.
+  }];
+
+  let arguments = (ins
+    AnyTensor:$input,
+    AnyTensor:$filter
+  );
+  let results = (outs
+    AnyTensor:$result
+  );
+
+  let assemblyFormat = [{
+    attr-dict $input `,` $filter `:` `(` type($input) `,` type($filter) `)` `->` type($result)
+  }];
+
+  let hasVerifier = 0;
+  let hasCanonicalizer = 0;
+  let hasFolder = 0;
+}
+
+//===---------------------------------------------------------------------===//
 // Parameterization Ops
 //===---------------------------------------------------------------------===//
 
