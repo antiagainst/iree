@@ -134,6 +134,45 @@ static void removeFusionGroupsAttribute(Operation *op) {
 // Op property charecterizations
 //===----------------------------------------------------------------------===//
 
+static bool isWinogradOp(Operation *op) {
+  if (auto winogradOp = dyn_cast<IREE::Flow::WinogradInputTransformOp>(op))
+    return true;
+  if (auto winogradOp = dyn_cast<IREE::Flow::WinogradFilterTransformOp>(op))
+    return true;
+  if (auto winogradOp = dyn_cast<IREE::Flow::WinogradOutputTransformOp>(op))
+    return true;
+  if (auto winogradOp = dyn_cast<IREE::Flow::WinogradBatchMatmulOp>(op))
+    return true;
+  return false;
+}
+
+SmallVector<Range> getWinogradLoopRanges(Operation *op, Location loc,
+                                         OpBuilder &builder) {
+  OpFoldResult zero = builder.getIndexAttr(0);
+  OpFoldResult one = builder.getIndexAttr(1);
+  Value input;
+  if (auto winogradOp = dyn_cast<IREE::Flow::WinogradInputTransformOp>(op)) {
+    input = winogradOp.getInput();
+  } else if (auto winogradOp = dyn_cast<IREE::Flow::WinogradFilterTransformOp>(op)) {
+    input = winogradOp.getFilter();
+  } else if (auto winogradOp = dyn_cast<IREE::Flow::WinogradOutputTransformOp>(op)) {
+    input = winogradOp.getOutput();
+  } else if (auto winogradOp = dyn_cast<IREE::Flow::WinogradBatchMatmulOp>(op)) {
+    // This needs to be modified
+    input = winogradOp.getInput();
+  } else {
+    return {};
+  }
+
+  SmallVector<Range> loopRanges(input.getType().cast<ShapedType>().getRank(),
+                              Range{zero, one, one});
+  for (auto dim : llvm::seq<unsigned>(0, loopRanges.size())) {
+    loopRanges[dim].size =
+        builder.create<tensor::DimOp>(loc, input, dim).getResult();
+  }
+  return loopRanges;
+}
+
 /// Operations that are treated as root operations for dispatch region
 /// formation.
 static bool isRootOp(Operation *op) {
@@ -198,6 +237,24 @@ static SmallVector<Value> getWorkloadForRootOp(OpBuilder &builder,
   // of the outermost parallel loops that can be distributed.
   Location loc = rootOp->getLoc();
   SmallVector<Range> loopRanges = getLoopRanges(rootOp, loc, builder);
+  AffineExpr s0, s1, s2;
+  bindSymbols(builder.getContext(), s0, s1, s2);
+  AffineMap workload = AffineMap::get(0, 3, (s1 - s0).ceilDiv(s2));
+  return llvm::to_vector(llvm::map_range(loopRanges, [&](Range r) -> Value {
+    Value offset = getValueOrCreateConstantIndexOp(builder, loc, r.offset);
+    Value size = getValueOrCreateConstantIndexOp(builder, loc, r.size);
+    Value stride = getValueOrCreateConstantIndexOp(builder, loc, r.stride);
+    return builder.create<AffineApplyOp>(rootOp->getLoc(), workload,
+                                         ValueRange{offset, size, stride});
+  }));
+}
+
+static SmallVector<Value> getWorkloadForWinogradRootOp(OpBuilder &builder,
+                                                       Operation *rootOp) {
+  // Compute workgroup count to use for the dispatch op. These are the ranges
+  // of the outermost parallel loops that can be distributed.
+  Location loc = rootOp->getLoc();
+  SmallVector<Range> loopRanges = getWinogradLoopRanges(rootOp, loc, builder);
   AffineExpr s0, s1, s2;
   bindSymbols(builder.getContext(), s0, s1, s2);
   AffineMap workload = AffineMap::get(0, 3, (s1 - s0).ceilDiv(s2));
@@ -279,9 +336,24 @@ buildOperandLessFlowDispatchWorkgroupOp(PatternRewriter &rewriter, Location loc,
   //    of them.
   for (auto op : dispatchOps) {
     if (!hasComputeUsesOutsideDispatch(op, dispatchOps)) continue;
-    if (failed(computeDispatchResultTypeAndDynamicDims(
-            rewriter, op, resultTypes, resultDynamicDims))) {
-      return failure();
+    if (isWinogradOp(op)) {
+      if (auto winogradOp = dyn_cast<IREE::Flow::WinogradInputTransformOp>(op)) {
+        resultTypes.push_back(winogradOp.getResult().getType());
+      }
+      if (auto winogradOp = dyn_cast<IREE::Flow::WinogradFilterTransformOp>(op)) {
+        resultTypes.push_back(winogradOp.getResult().getType());
+      }
+      if (auto winogradOp = dyn_cast<IREE::Flow::WinogradOutputTransformOp>(op)) {
+        resultTypes.push_back(winogradOp.getResult().getType());
+      }
+      if (auto winogradOp = dyn_cast<IREE::Flow::WinogradBatchMatmulOp>(op)) {
+        resultTypes.push_back(winogradOp.getResult().getType());
+      }
+    } else {
+      if (failed(computeDispatchResultTypeAndDynamicDims(
+              rewriter, op, resultTypes, resultDynamicDims))) {
+        return failure();
+      }
     }
   }
 
@@ -715,6 +787,42 @@ struct CreateDispatchRegionOp : Base<OpType> {
 
  private:
   LinalgExt::LinalgTransformationFilter transformationFilter;
+};
+}  // namespace
+
+namespace {
+template <typename OpType, template <typename> class Base>
+struct CreateWinogradDispatchRegionOp : Base<OpType> {
+  CreateWinogradDispatchRegionOp(MLIRContext *context, PatternBenefit benefit = 1)
+      : Base<OpType>(context, benefit) {}
+
+  LogicalResult matchAndRewrite(OpType rootOp,
+                                PatternRewriter &rewriter) const override {
+    if (!hasComputeUsesOutsideDispatch(rootOp)) return failure();
+    if (rootOp->template getParentOfType<IREE::Flow::DispatchWorkgroupsOp>()) {
+      return failure();
+    }
+
+    // Get the workload to use for the dispatch.
+    FailureOr<SmallVector<Value>> workload =
+        getWorkloadForWinogradRootOp(rewriter, rootOp.getOperation());
+    if (failed(workload)) {
+      return failure();
+    }
+
+    SmallVector<Operation *> dispatchOps = {rootOp};
+
+    // Create a simple dispatch op with no operands, and not isolated from
+    // above.
+    auto clonedOps = buildOperandLessFlowDispatchWorkgroupOp(
+        rewriter, rootOp.getLoc(), workload.value(), dispatchOps);
+    if (failed(clonedOps)) {
+      return failure();
+    }
+
+    return success();
+  }
+
 };
 }  // namespace
 
@@ -1184,6 +1292,20 @@ void DispatchLinalgOnTensorsPass::runOnOperation() {
     funcOp->print(llvm::dbgs(), OpPrintingFlags().useLocalScope());
     llvm::dbgs() << "\n\n";
   });
+
+  {
+    RewritePatternSet computeOpDispatchPatterns(context);
+    computeOpDispatchPatterns.insert<
+      CreateWinogradDispatchRegionOp<IREE::Flow::WinogradInputTransformOp, OpRewritePattern>,
+      CreateWinogradDispatchRegionOp<IREE::Flow::WinogradFilterTransformOp, OpRewritePattern>,
+      CreateWinogradDispatchRegionOp<IREE::Flow::WinogradOutputTransformOp, OpRewritePattern>,
+      CreateWinogradDispatchRegionOp<IREE::Flow::WinogradBatchMatmulOp, OpRewritePattern>
+    >(context);
+    if (failed(createDispatchRegionsFromRootOps(
+            funcOp, std::move(computeOpDispatchPatterns)))) {
+      return signalPassFailure();
+    }
+  }
 
   {
     LinalgExt::LinalgTransformationFilter filterForComputeOps(
