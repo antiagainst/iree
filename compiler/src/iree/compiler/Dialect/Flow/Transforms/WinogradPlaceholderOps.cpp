@@ -92,10 +92,30 @@ class ConvertConv2DNhwcHwcf final
     Value result = convOp.getResult(0);
 
     rewriter.setInsertionPointAfter(convOp);
-    auto endOp = rewriter.create<IREE::Flow::WinogradEndOp>(loc, output.getType(), result, tOutput);
+    // Create generic add that will still allow consumer fusion
+    auto outputShape = output.getType().cast<ShapedType>().getShape();
+    int64_t iterationSpaceDim = 4;
+    SmallVector<AffineExpr> idExprs;
+    for (auto i = 0; i < iterationSpaceDim; i++) {
+      idExprs.push_back(getAffineDimExpr(i, rewriter.getContext()));
+    }
+    SmallVector<AffineMap> indexingMaps = {
+      AffineMap::get(iterationSpaceDim, 0, idExprs, rewriter.getContext()),
+      AffineMap::get(iterationSpaceDim, 0, idExprs, rewriter.getContext()),
+      AffineMap::get(iterationSpaceDim, 0, idExprs, rewriter.getContext()),
+    };
+    SmallVector<StringRef> iteratorTypes(iterationSpaceDim, getParallelIteratorTypeName());
+    Value emptyTensor = rewriter.create<tensor::EmptyOp>(loc, outputShape, elementType);
+    auto endOp = rewriter.create<linalg::GenericOp>(loc, output.getType(), 
+      ValueRange({result, tOutput}), emptyTensor,
+      indexingMaps, iteratorTypes, 
+      [&](OpBuilder &b, Location loc, ValueRange args) {
+        Value result = b.create<arith::AddFOp>(loc, args[0], args[1]);
+        b.create<linalg::YieldOp>(loc, result);
+      });
 
     convOp->setAttr("type", rewriter.getStringAttr("winograd"));
-    result.replaceAllUsesExcept(endOp, {endOp});
+    result.replaceAllUsesExcept(endOp.getResult(0), {endOp});
     
     return success();
   }

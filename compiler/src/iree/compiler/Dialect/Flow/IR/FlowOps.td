@@ -1325,29 +1325,6 @@ def FLOW_WinogradBatchMatmulOp : FLOW_PureOp<"winograd.batch_matmul", []> {
   let hasFolder = 0;
 }
 
-def FLOW_WinogradEndOp : FLOW_PureOp<"winograd.end", []> {
-  let summary = [{Marks the end of the winograd transformation}];
-  let description = [{
-    Marks the end of the winograd transformation
-  }];
-
-  let arguments = (ins
-    AnyTensor:$original,
-    AnyTensor:$winograd
-  );
-  let results = (outs
-    AnyTensor:$result
-  );
-
-  let assemblyFormat = [{
-    attr-dict $original `,` $winograd `:` `(` type($original) `,` type($winograd) `)` `->` type($result)
-  }];
-
-  let hasVerifier = 0;
-  let hasCanonicalizer = 0;
-  let hasFolder = 0;
-}
-
 //===---------------------------------------------------------------------===//
 // Parameterization Ops
 //===---------------------------------------------------------------------===//
