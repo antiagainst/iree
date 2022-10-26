@@ -66,15 +66,6 @@ void SPIRVLowerExecutableTargetPass::runOnOperation() {
 
   OpPassManager pipeline(IREE::HAL::ExecutableVariantOp::getOperationName());
 
-  // Convert Winograd ops
-  PassManager passManager(moduleOp.getContext());
-  OpPassManager &nestedFunctionPM = passManager.nest<func::FuncOp>();
-  nestedFunctionPM.addPass(createLowerWinogradInputTransformPass());
-  // TODO: Add lowering for filter, output and batch-matmul
-  if (failed(passManager.run(moduleOp))) {
-    return signalPassFailure();
-  }
-
   if (failed(initSPIRVLaunchConfig(moduleOp))) {
     return signalPassFailure();
   }

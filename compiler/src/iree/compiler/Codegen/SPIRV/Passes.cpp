@@ -122,13 +122,6 @@ static void addTileAndDistributeToWorkgroupsPasses(
   nestedModulePM.addPass(createCSEPass());
 }
 
-static void addWinogradPasses(OpPassManager &passManager) {
-  auto &nestedModulePM = passManager.nest<ModuleOp>();
-  nestedModulePM.addNestedPass<func::FuncOp>(createConvertConv2dToWinogradPass());
-  nestedModulePM.addPass(createCanonicalizerPass());
-  nestedModulePM.addPass(createCSEPass());
-}
-
 static void addSPIRVBufferizePasses(
     OpPassManager &passManager,
     BufferizationOptions::AllocationFn allocationFn) {
@@ -320,8 +313,8 @@ void addSPIRVMatmulPromoteVectorizePassPipeline(OpPassManager &pm) {
 }
 
 void addSPIRVWinogradVectorizePassPipeline(OpPassManager &pm) {
-  addTileAndDistributeToWorkgroupsPasses(pm);
-  //addWinogradPasses(pm);
+  // Tile and distribute to workgroups is already done,
+  // so we just bufferize and vectorize
 
   auto &nestedModulePM = pm.nest<ModuleOp>();
   addBufferizePasses(nestedModulePM, gpuAllocateWorkgroupMemoryFn);
@@ -427,6 +420,11 @@ void addSPIRVSubgroupReducePassPipeline(OpPassManager &pm) {
 void buildSPIRVCodegenPassPipeline(OpPassManager &pm, bool enableFastMath) {
   pm.nest<ModuleOp>().nest<func::FuncOp>().addPass(createTypePropagationPass());
   pm.nest<ModuleOp>().addPass(createBufferizeCopyOnlyDispatchesPass());
+
+  // Convert Winograd ops
+  pm.nest<ModuleOp>().nest<func::FuncOp>().addPass(createLowerWinogradInputTransformPass());
+  //pm.nest<ModuleOp>().nest<func::FuncOp>().addPass(createLowerWinogradFilterTransformPass());
+
   pm.addPass(createSPIRVLowerExecutableTargetPass());
 
   addMemRefLoweringPasses(pm.nest<ModuleOp>());

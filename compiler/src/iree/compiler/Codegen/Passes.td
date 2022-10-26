@@ -124,6 +124,12 @@ def LowerWinogradInputTransform :
   let constructor = "mlir::iree_compiler::createLowerWinogradInputTransformPass()";
 }
 
+def LowerWinogradFilterTransform :
+    Pass<"iree-codegen-lower-winograd-filter", "func::FuncOp"> {
+  let summary = "Lower winograd filter transform to loops";
+  let constructor = "mlir::iree_compiler::createLowerWinogradFilterTransformPass()";
+}
+
 def WorkgroupSpecialization :
     Pass<"iree-codegen-workgroup-specialization", "func::FuncOp"> {
   let summary = "Specialize workgroup distribution loops";

@@ -1042,14 +1042,6 @@ static LogicalResult setSPIRVOpConfig(const spirv::TargetEnv &targetEnv,
 // Entry Point
 //===----------------------------------------------------------------------===//
 
-static bool hasWinogradOp(func::FuncOp funcOp) {
-  auto inputOps = funcOp.getOps<IREE::Flow::WinogradInputTransformOp>();
-  auto filterOps = funcOp.getOps<IREE::Flow::WinogradFilterTransformOp>();
-  auto outputOps = funcOp.getOps<IREE::Flow::WinogradOutputTransformOp>();
-  auto bmmOps = funcOp.getOps<IREE::Flow::WinogradBatchMatmulOp>();
-  return ((!inputOps.empty()) || (!filterOps.empty()) || (!outputOps.empty()) || (!bmmOps.empty()));
-}
-
 LogicalResult initSPIRVLaunchConfig(ModuleOp module) {
   llvm::StringMap<IREE::HAL::ExecutableExportOp> exportOps =
       getAllEntryPoints(module);
@@ -1067,6 +1059,7 @@ LogicalResult initSPIRVLaunchConfig(ModuleOp module) {
     if (!exportOp) continue;
 
     SmallVector<Operation *> computeOps;
+    funcOp.dump();
     if (failed(getComputeOps(funcOp, computeOps))) {
       return funcOp.emitOpError("failed to get compute ops");
     }
@@ -1086,10 +1079,10 @@ LogicalResult initSPIRVLaunchConfig(ModuleOp module) {
       // Check if the op configuration was set.
       if (!getLoweringConfig(computeOp)) continue;
 
-      if (rootOperation) {
-        return computeOp->emitOpError(
-            "unhandled multiple roots in dispatch region");
-      }
+      //if (rootOperation) {
+      //  return computeOp->emitOpError(
+      //      "unhandled multiple roots in dispatch region");
+      //}
       rootOperation = computeOp;
     }
 

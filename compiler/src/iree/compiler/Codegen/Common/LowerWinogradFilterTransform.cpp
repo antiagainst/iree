@@ -57,8 +57,8 @@ static void transpose(SmallVectorImpl<float> &inputTensor, SmallVectorImpl<float
 
 namespace {
 
-class ConvertWinogradInputTransform final
-    : public OpRewritePattern<IREE::Flow::WinogradInputTransformOp> {
+class ConvertWinogradFilterTransform final
+    : public OpRewritePattern<IREE::Flow::WinogradFilterTransformOp> {
  public:
   using OpRewritePattern::OpRewritePattern;
 
@@ -184,7 +184,7 @@ class ConvertWinogradInputTransform final
     }
   }
 
-  static void updateLoopsAndState(scf::LoopNest &loopNest, 
+  static Value updateLoopsAndState(scf::LoopNest &loopNest, 
                                   ArrayRef<int64_t> inputShape,
                                   SmallVectorImpl<Value> &tileSizes,
                                   size_t numWorkgroups,
@@ -193,7 +193,7 @@ class ConvertWinogradInputTransform final
                                   TensorState &outputState,
                                   Location loc,
                                   PatternRewriter &rewriter) {
-    //SmallVector<Value> cmpVals;
+    SmallVector<Value> cmpVals;
     auto loops = loopNest.loops;
     for (int i = 0; i < loops.size(); i++) {
       auto info = schedule.tilingInfo[i + numWorkgroups];
@@ -203,15 +203,14 @@ class ConvertWinogradInputTransform final
       if ((info.dim == 'h') || (info.dim == 'w')) {
         rewriter.setInsertionPoint(&loops[i].getBody()->front());
         AffineExpr dim0;
-        //auto t = rewriter.getAffineConstantExpr(info.tile);
-        //auto delta = rewriter.getAffineConstantExpr(inputShape[pos]);
+        auto t = rewriter.getAffineConstantExpr(info.tile);
+        auto delta = rewriter.getAffineConstantExpr(inputShape[pos]);
         bindDims(rewriter.getContext(), dim0);
-        //AffineMap minMap = AffineMap::get(1, 0, {-dim0 + delta, t}, rewriter.getContext());
-        inputState.sizes[pos] = rewriter.getIndexAttr(info.tile);
-        //inputState.sizes[pos] = rewriter.createOrFold<AffineMinOp>(loc, minMap, ValueRange{iv});
-        //cmpVals.push_back(rewriter.create<arith::CmpIOp>(
-        //      loc, arith::CmpIPredicate::eq, inputState.sizes[pos].dyn_cast<Value>(),
-        //      tileSizes[i]));
+        AffineMap minMap = AffineMap::get(1, 0, {-dim0 + delta, t}, rewriter.getContext());
+        inputState.sizes[pos] = rewriter.createOrFold<AffineMinOp>(loc, minMap, ValueRange{iv});
+        cmpVals.push_back(rewriter.create<arith::CmpIOp>(
+              loc, arith::CmpIPredicate::eq, inputState.sizes[pos].dyn_cast<Value>(),
+              tileSizes[i]));
         auto s = rewriter.getAffineConstantExpr(info.step);
         AffineMap outputMap = AffineMap::get(1, 0, {dim0.floorDiv(s)}, rewriter.getContext());
         size_t offpos = info.dim == 'h' ? schedule.tensorFormat["output"].find('H') 
@@ -228,15 +227,15 @@ class ConvertWinogradInputTransform final
     }
 
     rewriter.setInsertionPoint(&loops.back().getBody()->front());
-    //assert(cmpVals.size() == 2);
-    //return rewriter.create<arith::AndIOp>(loc, cmpVals[0], cmpVals[1]);
+    assert(cmpVals.size() == 2);
+    return rewriter.create<arith::AndIOp>(loc, cmpVals[0], cmpVals[1]);
   }
 
-  static IREE::Flow::DispatchTensorLoadOp getTensorLoadOp(IREE::Flow::WinogradInputTransformOp op) {
-     return op.getInput().getDefiningOp<IREE::Flow::DispatchTensorLoadOp>();
+  static IREE::Flow::DispatchTensorLoadOp getTensorLoadOp(IREE::Flow::WinogradFilterTransformOp op) {
+     return op.getFilter().getDefiningOp<IREE::Flow::DispatchTensorLoadOp>();
   }
 
-  static IREE::Flow::DispatchTensorStoreOp getTensorStoreOp(IREE::Flow::WinogradInputTransformOp op) {
+  static IREE::Flow::DispatchTensorStoreOp getTensorStoreOp(IREE::Flow::WinogradFilterTransformOp op) {
     auto users = llvm::to_vector(op.getResult().getUsers());
     assert(!users.empty());
     return dyn_cast<IREE::Flow::DispatchTensorStoreOp>(users[0]);
@@ -259,9 +258,7 @@ class ConvertWinogradInputTransform final
     }
   }
 
-  static Value generateFlowLoads(IREE::Flow::WinogradInputTransformOp op,
-                                 int padH, int padW,
-                                 Value zero,
+  static Value generateFlowLoads(IREE::Flow::WinogradFilterTransformOp op,
                                  std::string tensor,
                                  TensorState &state,
                                  Type elementType,
@@ -270,27 +267,8 @@ class ConvertWinogradInputTransform final
     if (tensor == "input") {
       auto tensorLoadOp = getTensorLoadOp(op);
       auto tensorType = RankedTensorType::get(state.currentSize, elementType);
-      auto loadTensor = rewriter.create<IREE::Flow::DispatchTensorLoadOp>(loc, tensorType,
+      return rewriter.create<IREE::Flow::DispatchTensorLoadOp>(loc, tensorType,
         tensorLoadOp.getSource(), ValueRange({}), state.offsets, state.sizes, state.strides).getResult();
-      return loadTensor;
-      // Apply padding
-      //SmallVector<OpFoldResult> loPad(state.sizes.size(), rewriter.getIndexAttr(0));
-      //SmallVector<OpFoldResult> hiPad(state.sizes.size(), rewriter.getIndexAttr(0));
-      //hiPad[1] = rewriter.getIndexAttr(padH);
-      //hiPad[2] = rewriter.getIndexAttr(padW);
-      //SmallVector<int64_t, 4> paddedShape = state.currentSize;
-      //paddedShape[1] += padH;
-      //paddedShape[2] += padW;
-      //auto padTensorOp = rewriter.create<tensor::PadOp>(loc, 
-      //   RankedTensorType::get(paddedShape, elementType), loadTensor, loPad, hiPad);
-      //auto &region = padTensorOp.getRegion();
-      //int rank = padTensorOp.getResultType().getRank();
-      //SmallVector<Type> blockArgTypes(rank, rewriter.getIndexType());
-      //SmallVector<Location> blockArgLocs(rank, loc);
-      //rewriter.createBlock(&region, region.end(), blockArgTypes, blockArgLocs);
-      //rewriter.create<tensor::YieldOp>(loc, zero);
-      //rewriter.setInsertionPointAfter(padTensorOp);
-      //return padTensorOp.getResult();
     } else {
       auto tensorStoreOp = getTensorStoreOp(op);
       auto tensorType = RankedTensorType::get(state.currentSize, elementType);
@@ -299,7 +277,7 @@ class ConvertWinogradInputTransform final
     }
   }
 
-  static void generateFlowStores(IREE::Flow::WinogradInputTransformOp op,
+  static void generateFlowStores(IREE::Flow::WinogradFilterTransformOp op,
                                   Value result,
                                   TensorState &state,
                                   Location loc,
@@ -311,6 +289,7 @@ class ConvertWinogradInputTransform final
 
   static Value extractInputSlice(SmallVectorImpl<int64_t> &rankReducedSize,
                                  TensorState &state,
+                                 Value ifCond,
                                  Value inputSlice,
                                  Type elementType,
                                  TilingSchedule &schedule,
@@ -319,20 +298,6 @@ class ConvertWinogradInputTransform final
                                  Location loc,
                                  PatternRewriter &rewriter) {
 
-    auto tensorType = RankedTensorType::get(rankReducedSize, elementType);
-    SmallVector<OpFoldResult, 4> sizes = state.sizes;
-    // Force shapes to be static
-    for (auto info : schedule.tilingInfo) {
-      if (!info.isWorkgroup) {
-        if ((info.dim == 'h') || (info.dim == 'w')) {
-          size_t pos = schedule.tensorFormat["input"].find(info.dim);
-          sizes[pos] = rewriter.getIndexAttr(info.tile);
-        }
-      }
-    }
-    return rewriter.create<tensor::ExtractSliceOp>(loc, tensorType,
-      inputSlice, state.offsets, sizes, state.strides).getResult();
-#if 0
     auto thenBuilder = [&](OpBuilder &builder, Location loc) {
       auto tensorType = RankedTensorType::get(rankReducedSize, elementType);
       SmallVector<OpFoldResult, 4> sizes = state.sizes;
@@ -390,7 +355,6 @@ class ConvertWinogradInputTransform final
     return rewriter.create<scf::IfOp>(loc, 
        RankedTensorType::get(rankReducedSize, elementType), 
        ifCond, thenBuilder, elseBuilder).getResult(0);
-#endif
   }
 
   static Value extractOutputSlice(SmallVectorImpl<int64_t> &rankReducedSize,
@@ -431,12 +395,12 @@ class ConvertWinogradInputTransform final
         state.offsets, state.sizes, state.strides).getResult();
   }
 
-  static LogicalResult applySchedule(IREE::Flow::WinogradInputTransformOp inputOp,
+  static LogicalResult applySchedule(IREE::Flow::WinogradFilterTransformOp inputOp,
                                      TilingSchedule &schedule, PatternRewriter &rewriter) {
 
     // Get input info
     auto loc = inputOp.getLoc();
-    auto input = inputOp.getInput();
+    auto input = inputOp.getFilter();
     auto inputType = input.getType().cast<ShapedType>();
     auto inputShape = inputType.getShape();
     auto elementType = inputType.getElementType();
@@ -444,6 +408,7 @@ class ConvertWinogradInputTransform final
     // Get output info
     auto output = inputOp.getResult();
     auto outputType = output.getType().cast<ShapedType>();
+    auto outputRank = outputType.getRank();
     auto outputShape = outputType.getShape();
 
     // Initialize tensor state
@@ -493,20 +458,8 @@ class ConvertWinogradInputTransform final
 
     // Generate flow loads
     rewriter.setInsertionPoint(&workgroupLoopNest.loops.back().getBody()->front());
-    int padH{0};
-    int padW{0};
-    for (auto info : schedule.tilingInfo) {
-      if (info.dim == 'h') {
-        padH = info.step * std::ceil((float) (inputShape[1] - info.tile) / info.step) 
-             + info.tile - inputShape[1];
-      }
-      if (info.dim == 'w') {
-        padW = info.step * std::ceil((float) (inputShape[2] - info.tile) / info.step) 
-             + info.tile - inputShape[2];
-      }
-    }
-    Value inputSlice = generateFlowLoads(inputOp, padH, padW, zero, "input", inputState, elementType, loc, rewriter);
-    Value outputSlice = generateFlowLoads(inputOp, padH, padW, zero, "output", outputState, elementType, loc, rewriter);
+    Value inputSlice = generateFlowLoads(inputOp, "input", inputState, elementType, loc, rewriter);
+    Value outputSlice = generateFlowLoads(inputOp, "output", outputState, elementType, loc, rewriter);
 
     // Generate rest of loops
     rewriter.setInsertionPointToStart(&funcOp.getBody().front());
@@ -523,7 +476,8 @@ class ConvertWinogradInputTransform final
     // Generate flow stores
     generateFlowStores(inputOp, loopNest.getResults()[0], outputState, loc, rewriter);
 
-    updateLoopsAndState(loopNest, inputShape, tiles, numWorkgroups, schedule, inputState, outputState, loc, rewriter);
+    auto ifCond = updateLoopsAndState(loopNest, inputShape, tiles, numWorkgroups, schedule, inputState,
+                        outputState, loc, rewriter);
 
     // Extract slices
     SmallVector<int64_t> rankReducedSize;
@@ -532,7 +486,7 @@ class ConvertWinogradInputTransform final
       if (size == 1) continue;
       rankReducedSize.push_back(size);
     }
-    inputSlice = extractInputSlice(rankReducedSize, inputState, inputSlice, elementType, schedule, tiles, zero, loc, rewriter);
+    inputSlice = extractInputSlice(rankReducedSize, inputState, ifCond, inputSlice, elementType, schedule, tiles, zero, loc, rewriter);
     Value iterArg = loopNest.loops.back().getRegionIterArg(0);
     outputSlice = extractOutputSlice(rankReducedSize, outputState, iterArg, elementType, loc, rewriter);
 
@@ -545,30 +499,30 @@ class ConvertWinogradInputTransform final
       rewriter.replaceOpWithNewOp<scf::YieldOp>(yieldOp, updatedTensor);
     }
 
-    // Remove original ops
-    auto tensorStoreOp = getTensorStoreOp(inputOp);
-    rewriter.eraseOp(tensorStoreOp);
+
+    inputOp->getParentOfType<ModuleOp>().dump();
+
+    //// Remove original ops
+    //auto tensorStoreOp = getTensorStoreOp(inputOp);
+    //rewriter.eraseOp(tensorStoreOp);
     //auto tensorLoadOp = getTensorLoadOp(inputOp);
     //rewriter.eraseOp(inputOp);
     //rewriter.eraseOp(tensorLoadOp);
-    inputOp->getParentOfType<ModuleOp>().dump();
 
     return failure();
-    return success();
   }
 
-  LogicalResult matchAndRewrite(IREE::Flow::WinogradInputTransformOp inputOp,
+  LogicalResult matchAndRewrite(IREE::Flow::WinogradFilterTransformOp inputOp,
                                 PatternRewriter &rewriter) const override {
 
     TilingSchedule schedule;
-    schedule.tensorFormat = {{"input", "nhwc"}, {"output", "tpnHWc"}};
+    schedule.tensorFormat = {{"input", "hwcf"}, {"output", "ptcf"}};
     schedule.tilingInfo = {
       /* dim, lo, hi, step, tile, is_workgroup */
-      {'n', 0, -1,  1,  1,  1},
       {'c', 0, -1, 32, 32,  1},
-      {'h', 0, -1,  6,  8,  0},
-      {'w', 0, -1,  6,  8,  0},
-      {'c', 0, 32,  1,  1,  0}
+      {'f', 0, -1, 32, 32,  1},
+      {'c', 0, 32,  1,  1,  0},
+      {'f', 0, 32,  1,  1,  0}
     };
     if (failed(applySchedule(inputOp, schedule, rewriter)))
       return failure();
@@ -581,9 +535,9 @@ class ConvertWinogradInputTransform final
 
 
 namespace {
-struct LowerWinogradInputTransformPass
-    : public LowerWinogradInputTransformBase<
-          LowerWinogradInputTransformPass> {
+struct LowerWinogradFilterTransformPass
+    : public LowerWinogradFilterTransformBase<
+          LowerWinogradFilterTransformPass> {
   void getDependentDialects(DialectRegistry &registry) const override {
     registry.insert<AffineDialect, IREE::Flow::FlowDialect,
                     IREE::HAL::HALDialect, linalg::LinalgDialect,
@@ -594,10 +548,10 @@ struct LowerWinogradInputTransformPass
 };
 }  // namespace
 
-void LowerWinogradInputTransformPass::runOnOperation() {
+void LowerWinogradFilterTransformPass::runOnOperation() {
   MLIRContext *context = &getContext();
   RewritePatternSet patterns(&getContext());
-  patterns.insert<ConvertWinogradInputTransform>(
+  patterns.insert<ConvertWinogradFilterTransform>(
       context);
   if (failed(applyPatternsAndFoldGreedily(getOperation(),
                                           std::move(patterns)))) {
@@ -606,8 +560,8 @@ void LowerWinogradInputTransformPass::runOnOperation() {
 }
 
 std::unique_ptr<OperationPass<func::FuncOp>>
-createLowerWinogradInputTransformPass() {
-  return std::make_unique<LowerWinogradInputTransformPass>();
+createLowerWinogradFilterTransformPass() {
+  return std::make_unique<LowerWinogradFilterTransformPass>();
 }
 
 }  // namespace iree_compiler

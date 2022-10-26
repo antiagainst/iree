@@ -86,6 +86,7 @@ iree_cc_library(
     "FuseTensorPadWithConsumer.cpp"
     "IREEComprehensiveBufferizePass.cpp"
     "LowerWinogradInputTransform.cpp"
+    "LowerWinogradFilterTransform.cpp"
     "OptimizeVectorTransferPass.cpp"
     "PolynomialApproximationPass.cpp"
     "TestPartitionableLoopsInterface.cpp"

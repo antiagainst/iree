@@ -73,6 +73,23 @@ class ConvertConv2DNhwcHwcf final
                    + inputTileSize - ih;
     const int padW = outputTileSize * std::ceil((float) (iw - inputTileSize) / outputTileSize) 
                    + inputTileSize - iw;
+
+    //SmallVector<OpFoldResult> loPad{inputShape.size(), rewriter.getIndexAttr(0)};
+    //SmallVector<OpFoldResult> hiPad{inputShape.size(), rewriter.getIndexAttr(0)};
+    //hiPad[1] = rewriter.getIndexAttr(padH);
+    //hiPad[2] = rewriter.getIndexAttr(padW);
+    //auto zero = rewriter.create<arith::ConstantOp>(loc, rewriter.getZeroAttr(elementType));
+    //auto padTensorOp = rewriter.create<tensor::PadOp>(loc, 
+    //     RankedTensorType::get(SmallVector<int64_t>{in, ih + padH, iw + padW, ic}, elementType), input, loPad, hiPad);
+    //auto &region = padTensorOp.getRegion();
+    //int rank = padTensorOp.getResultType().getRank();
+    //SmallVector<Type> blockArgTypes(rank, rewriter.getIndexType());
+    //SmallVector<Location> blockArgLocs(rank, loc);
+    //rewriter.createBlock(&region, region.end(), blockArgTypes, blockArgLocs);
+    //rewriter.create<tensor::YieldOp>(loc, zero);
+    //rewriter.setInsertionPointAfter(padTensorOp);
+    //auto paddedInput = padTensorOp.getResult();
+
     const int ihm = std::ceil((ih + padH - kh + 1) / outputTileSize);
     const int iwm = std::ceil((iw + padW - kw + 1) / outputTileSize);
     SmallVector<int64_t> shape = {inputTileSize, inputTileSize, in, ihm, iwm, ic};
@@ -90,7 +107,9 @@ class ConvertConv2DNhwcHwcf final
     Value output = convOp.getOutputs()[0];
     auto tOutput = rewriter.create<IREE::Flow::WinogradOutputTransformOp>(loc, output.getType(), bmmResult);
     Value result = convOp.getResult(0);
+    result.replaceAllUsesWith(tOutput);
 
+    /*
     rewriter.setInsertionPointAfter(convOp);
     // Create generic add that will still allow consumer fusion
     auto outputShape = output.getType().cast<ShapedType>().getShape();
@@ -116,6 +135,7 @@ class ConvertConv2DNhwcHwcf final
 
     convOp->setAttr("type", rewriter.getStringAttr("winograd"));
     result.replaceAllUsesExcept(endOp.getResult(0), {endOp});
+    */
     
     return success();
   }
