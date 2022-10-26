@@ -166,25 +166,23 @@ class ConvertWinogradFilterTransform final
                                    PatternRewriter &rewriter) {
     auto workgroupLoops = workgroupLoopNest.loops;
     Value lb, step;
+    rewriter.setInsertionPoint(workgroupLoops[0]);
     for (int i = 0; i < numWorkgroups; i++) {
       if (i > 0) {
         rewriter.setInsertionPoint(&workgroupLoops[i - 1].getBody()->front());
-        AffineExpr s0;
-        bindSymbols(rewriter.getContext(), s0);
-        auto tileSize = schedule.tilingInfo[i].tile;
-        AffineMap map = AffineMap::get(0, 1, {s0 * rewriter.getAffineConstantExpr(tileSize)}, rewriter.getContext());
-        lb = rewriter.createOrFold<AffineApplyOp>(loc, map, ValueRange{ids[i]});
-        step = rewriter.createOrFold<AffineApplyOp>(loc, map, ValueRange{counts[i]});
-      } else {
-        lb = ids[i];
-        step = counts[i];
       }
+      AffineExpr s0;
+      bindSymbols(rewriter.getContext(), s0);
+      auto tileSize = schedule.tilingInfo[i].tile;
+      AffineMap map = AffineMap::get(0, 1, {s0 * rewriter.getAffineConstantExpr(tileSize)}, rewriter.getContext());
+      lb = rewriter.createOrFold<AffineApplyOp>(loc, map, ValueRange{ids[i]});
+      step = rewriter.createOrFold<AffineApplyOp>(loc, map, ValueRange{counts[i]});
       workgroupLoops[i].setLowerBound(lb);
       workgroupLoops[i].setStep(step);
     }
   }
 
-  static Value updateLoopsAndState(scf::LoopNest &loopNest, 
+  static void updateLoopsAndState(scf::LoopNest &loopNest, 
                                   ArrayRef<int64_t> inputShape,
                                   SmallVectorImpl<Value> &tileSizes,
                                   size_t numWorkgroups,
@@ -193,42 +191,22 @@ class ConvertWinogradFilterTransform final
                                   TensorState &outputState,
                                   Location loc,
                                   PatternRewriter &rewriter) {
-    SmallVector<Value> cmpVals;
     auto loops = loopNest.loops;
     for (int i = 0; i < loops.size(); i++) {
       auto info = schedule.tilingInfo[i + numWorkgroups];
       size_t pos = schedule.tensorFormat["input"].find(info.dim);
       size_t opos = schedule.tensorFormat["output"].find(info.dim);
       auto iv = loops[i].getInductionVar();
-      if ((info.dim == 'h') || (info.dim == 'w')) {
-        rewriter.setInsertionPoint(&loops[i].getBody()->front());
-        AffineExpr dim0;
-        auto t = rewriter.getAffineConstantExpr(info.tile);
-        auto delta = rewriter.getAffineConstantExpr(inputShape[pos]);
-        bindDims(rewriter.getContext(), dim0);
-        AffineMap minMap = AffineMap::get(1, 0, {-dim0 + delta, t}, rewriter.getContext());
-        inputState.sizes[pos] = rewriter.createOrFold<AffineMinOp>(loc, minMap, ValueRange{iv});
-        cmpVals.push_back(rewriter.create<arith::CmpIOp>(
-              loc, arith::CmpIPredicate::eq, inputState.sizes[pos].dyn_cast<Value>(),
-              tileSizes[i]));
-        auto s = rewriter.getAffineConstantExpr(info.step);
-        AffineMap outputMap = AffineMap::get(1, 0, {dim0.floorDiv(s)}, rewriter.getContext());
-        size_t offpos = info.dim == 'h' ? schedule.tensorFormat["output"].find('H') 
-                                        : schedule.tensorFormat["output"].find('W');
-        outputState.offsets[offpos] = rewriter.createOrFold<AffineApplyOp>(loc, outputMap, ValueRange{iv});
-      }
-      if (info.dim == 'c') {
-        // Assumes input and output have c dimension
-        inputState.sizes[pos] = rewriter.getIndexAttr(info.tile);
-        outputState.sizes[opos] = rewriter.getIndexAttr(info.tile);
-      }
       inputState.offsets[pos] = iv;
       inputState.currentSize[pos] = info.tile;
+      inputState.sizes[pos] = rewriter.getIndexAttr(info.tile);
+      if (opos != std::string::npos) {
+        outputState.offsets[opos] = iv;
+        outputState.sizes[opos] = rewriter.getIndexAttr(info.tile);
+        outputState.currentSize[opos] = info.tile;
+      }
     }
-
     rewriter.setInsertionPoint(&loops.back().getBody()->front());
-    assert(cmpVals.size() == 2);
-    return rewriter.create<arith::AndIOp>(loc, cmpVals[0], cmpVals[1]);
   }
 
   static IREE::Flow::DispatchTensorLoadOp getTensorLoadOp(IREE::Flow::WinogradFilterTransformOp op) {
@@ -289,7 +267,6 @@ class ConvertWinogradFilterTransform final
 
   static Value extractInputSlice(SmallVectorImpl<int64_t> &rankReducedSize,
                                  TensorState &state,
-                                 Value ifCond,
                                  Value inputSlice,
                                  Type elementType,
                                  TilingSchedule &schedule,
@@ -298,63 +275,66 @@ class ConvertWinogradFilterTransform final
                                  Location loc,
                                  PatternRewriter &rewriter) {
 
-    auto thenBuilder = [&](OpBuilder &builder, Location loc) {
-      auto tensorType = RankedTensorType::get(rankReducedSize, elementType);
-      SmallVector<OpFoldResult, 4> sizes = state.sizes;
-      // Force shapes to be static
-      for (auto info : schedule.tilingInfo) {
-        if (!info.isWorkgroup) {
-          if ((info.dim == 'h') || (info.dim == 'w')) {
-            size_t pos = schedule.tensorFormat["input"].find(info.dim);
-            sizes[pos] = rewriter.getIndexAttr(info.tile);
-          }
-        }
-      }
-      auto res = builder.create<tensor::ExtractSliceOp>(loc, tensorType,
-        inputSlice, state.offsets, sizes, state.strides).getResult();
-      builder.create<scf::YieldOp>(loc, res);
-    };
+    auto tensorType = RankedTensorType::get(rankReducedSize, elementType);
+    return rewriter.create<tensor::ExtractSliceOp>(loc, tensorType,
+      inputSlice, state.offsets, state.sizes, state.strides).getResult();
+    //auto thenBuilder = [&](OpBuilder &builder, Location loc) {
+    //  auto tensorType = RankedTensorType::get(rankReducedSize, elementType);
+    //  SmallVector<OpFoldResult, 4> sizes = state.sizes;
+    //  // Force shapes to be static
+    //  for (auto info : schedule.tilingInfo) {
+    //    if (!info.isWorkgroup) {
+    //      if ((info.dim == 'h') || (info.dim == 'w')) {
+    //        size_t pos = schedule.tensorFormat["input"].find(info.dim);
+    //        sizes[pos] = rewriter.getIndexAttr(info.tile);
+    //      }
+    //    }
+    //  }
+    //  auto res = builder.create<tensor::ExtractSliceOp>(loc, tensorType,
+    //    inputSlice, state.offsets, sizes, state.strides).getResult();
+    //  builder.create<scf::YieldOp>(loc, res);
+    //};
 
-    auto elseBuilder = [&](OpBuilder &builder, Location loc) {
-      SmallVector<int64_t> rankReducedDynamicSize;
-      for (auto size : llvm::enumerate(state.currentSize)) {
-        auto tensorFormat = schedule.tensorFormat["input"];
-        if ((tensorFormat[size.index()] == 'h') || (tensorFormat[size.index()] == 'w')) {
-          rankReducedDynamicSize.push_back(ShapedType::kDynamicSize);
-          continue;
-        }
-        if (size.value() == 1) continue;
-        rankReducedDynamicSize.push_back(size.value());
-      }
-      auto tensorType = RankedTensorType::get(rankReducedDynamicSize, elementType);
-      auto slice = builder.create<tensor::ExtractSliceOp>(loc, tensorType,
-        inputSlice, state.offsets, state.sizes, state.strides).getResult();
-      SmallVector<OpFoldResult> lowPad{rankReducedDynamicSize.size(), builder.getIndexAttr(0)};
-      SmallVector<OpFoldResult> hiPad;
-      int k{0};
-      for (auto infoPair : llvm::enumerate(schedule.tilingInfo)) {
-        auto info = infoPair.value();
-        if (info.isWorkgroup) continue;
-        if ((info.dim == 'h') || (info.dim == 'w')) {
-          size_t pos = schedule.tensorFormat["input"].find(info.dim);
-          hiPad.push_back(builder.create<arith::SubIOp>(loc, tileSizes[k++], state.sizes[pos].dyn_cast<Value>()).getResult());
-        }
-      }
-      auto padTensorOp = builder.create<tensor::PadOp>(loc, 
-         RankedTensorType::get(rankReducedSize, elementType), slice, lowPad, hiPad);
-      auto &region = padTensorOp.getRegion();
-      int rank = padTensorOp.getResultType().getRank();
-      SmallVector<Type> blockArgTypes(rank, rewriter.getIndexType());
-      SmallVector<Location> blockArgLocs(rank, loc);
-      builder.createBlock(&region, region.end(), blockArgTypes, blockArgLocs);
-      builder.create<tensor::YieldOp>(loc, zero);
-      builder.setInsertionPointAfter(padTensorOp);
-      builder.create<scf::YieldOp>(loc, padTensorOp.getResult());
-    };
+    //auto elseBuilder = [&](OpBuilder &builder, Location loc) {
+    //  SmallVector<int64_t> rankReducedDynamicSize;
+    //  for (auto size : llvm::enumerate(state.currentSize)) {
+    //    auto tensorFormat = schedule.tensorFormat["input"];
+    //    if ((tensorFormat[size.index()] == 'h') || (tensorFormat[size.index()] == 'w')) {
+    //      rankReducedDynamicSize.push_back(ShapedType::kDynamicSize);
+    //      continue;
+    //    }
+    //    if (size.value() == 1) continue;
+    //    rankReducedDynamicSize.push_back(size.value());
+    //  }
+    //  auto tensorType = RankedTensorType::get(rankReducedDynamicSize, elementType);
+    //  auto slice = builder.create<tensor::ExtractSliceOp>(loc, tensorType,
+    //    inputSlice, state.offsets, state.sizes, state.strides).getResult();
+    //  SmallVector<OpFoldResult> lowPad{rankReducedDynamicSize.size(), builder.getIndexAttr(0)};
+    //  SmallVector<OpFoldResult> hiPad;
+    //  int k{0};
+    //  for (auto infoPair : llvm::enumerate(schedule.tilingInfo)) {
+    //    auto info = infoPair.value();
+    //    if (info.isWorkgroup) continue;
+    //    if ((info.dim == 'h') || (info.dim == 'w')) {
+    //      size_t pos = schedule.tensorFormat["input"].find(info.dim);
+    //      hiPad.push_back(builder.create<arith::SubIOp>(loc, tileSizes[k++], state.sizes[pos].dyn_cast<Value>()).getResult());
+    //    }
+    //  }
+    //  auto padTensorOp = builder.create<tensor::PadOp>(loc, 
+    //     RankedTensorType::get(rankReducedSize, elementType), slice, lowPad, hiPad);
+    //  auto &region = padTensorOp.getRegion();
+    //  int rank = padTensorOp.getResultType().getRank();
+    //  SmallVector<Type> blockArgTypes(rank, rewriter.getIndexType());
+    //  SmallVector<Location> blockArgLocs(rank, loc);
+    //  builder.createBlock(&region, region.end(), blockArgTypes, blockArgLocs);
+    //  builder.create<tensor::YieldOp>(loc, zero);
+    //  builder.setInsertionPointAfter(padTensorOp);
+    //  builder.create<scf::YieldOp>(loc, padTensorOp.getResult());
+    //};
 
-    return rewriter.create<scf::IfOp>(loc, 
-       RankedTensorType::get(rankReducedSize, elementType), 
-       ifCond, thenBuilder, elseBuilder).getResult(0);
+    //return rewriter.create<scf::IfOp>(loc, 
+    //   RankedTensorType::get(rankReducedSize, elementType), 
+    //   ifCond, thenBuilder, elseBuilder).getResult(0);
   }
 
   static Value extractOutputSlice(SmallVectorImpl<int64_t> &rankReducedSize,
@@ -363,7 +343,6 @@ class ConvertWinogradFilterTransform final
                                   Type elementType,
                                   Location loc,
                                   PatternRewriter &rewriter) {
-    state.sizes[3] = state.sizes[4] = rewriter.getIndexAttr(1);
     return rewriter.create<tensor::ExtractSliceOp>(loc, 
           RankedTensorType::get(rankReducedSize, elementType), iterArg,
           state.offsets, state.sizes, state.strides);
@@ -371,19 +350,22 @@ class ConvertWinogradFilterTransform final
 
   static Value computeTransform(Value input,
                                 Value output,
+                                Value scratch,
                                 Value zero,
-                                int Bdim,
-                                Value B,
-                                Value BT,
+                                int Gcols,
+                                int Grows,
+                                Value GT,
+                                Value G,
                                 Type elementType,
                                 Location loc,
                                 PatternRewriter &rewriter) {
     Value interim, accumulator;
-    auto matmulType = RankedTensorType::get({Bdim, Bdim}, elementType);
+    auto matmulType = RankedTensorType::get({Grows, Gcols}, elementType);
+    accumulator = rewriter.create<linalg::FillOp>(loc, ValueRange{zero}, ValueRange{scratch}).result();
+    interim = rewriter.create<linalg::MatmulOp>(loc, matmulType, ValueRange{input, GT}, accumulator).getResult(0);
+    matmulType = RankedTensorType::get({Gcols, Gcols}, elementType);
     accumulator = rewriter.create<linalg::FillOp>(loc, ValueRange{zero}, ValueRange{output}).result();
-    interim = rewriter.create<linalg::MatmulOp>(loc, matmulType, ValueRange{input, B}, accumulator).getResult(0);
-    accumulator = rewriter.create<linalg::FillOp>(loc, ValueRange{zero}, ValueRange{output}).result();
-    return rewriter.create<linalg::MatmulOp>(loc, matmulType, ValueRange{BT, interim}, accumulator).getResult(0);
+    return rewriter.create<linalg::MatmulOp>(loc, matmulType, ValueRange{G, interim}, accumulator).getResult(0);
   }
 
   static Value insertSlice(Value transformed,
@@ -408,7 +390,6 @@ class ConvertWinogradFilterTransform final
     // Get output info
     auto output = inputOp.getResult();
     auto outputType = output.getType().cast<ShapedType>();
-    auto outputRank = outputType.getRank();
     auto outputShape = outputType.getShape();
 
     // Initialize tensor state
@@ -426,23 +407,25 @@ class ConvertWinogradFilterTransform final
     auto zero = rewriter.create<arith::ConstantOp>(loc, rewriter.getZeroAttr(elementType));
     /*---------------------------------------------------------*/
     // Input filter constants
-    SmallVector<float> BT{
-      1,     0, -21./4.,        0,  21./4.,       0, -1, 0,
-      0,     1,       1,  -17./4., -17./4.,       1,  1, 0,
-      0,    -1,       1,   17./4., -17./4.,      -1,  1, 0,
-      0,  1./2,   1./4.,   -5./2.,  -5./4.,       2,  1, 0,
-      0,  -1./2,  1./4.,    5./2.,  -5./4.,      -2,  1, 0,
-      0,      2,      4,   -5./2.,      -5,   1./2.,  1, 0,
-      0,     -2,      4,    5./2.,      -5,  -1./2.,  1, 0,
-      0,     -1,      0,   21./4.,       0, -21./4.,  0, 1
+    SmallVector<float> G{
+      1, 0, 0,
+      -2./9., -2./9., -2./9.,
+      -2./9., 2./9., -2./9.,
+      1./90, 1./45, 2./45,
+      1./90, -1./45, 2./45,
+      32./45, 16./45, 8./45,
+      32./45, -16./45, 8./45,
+      0, 0, 1
     };
-    int Bdim = std::sqrt(BT.size());
-    SmallVector<float> B;
-    transpose(BT, B, Bdim, Bdim);
-    auto BTValue = rewriter.create<arith::ConstantOp>(loc, DenseFPElementsAttr::get(
-      RankedTensorType::get({Bdim, Bdim}, rewriter.getF32Type()), BT));
-    auto BValue = rewriter.create<arith::ConstantOp>(loc, DenseFPElementsAttr::get(
-      RankedTensorType::get({Bdim, Bdim}, rewriter.getF32Type()), B));
+    int Grows = 8;
+    int Gcols = 3;
+    SmallVector<float> GT;
+    transpose(G, GT, Grows, Gcols);
+    auto scratch = rewriter.create<tensor::EmptyOp>(loc, SmallVector<int64_t>{Gcols, Grows}, elementType);
+    auto GValue = rewriter.create<arith::ConstantOp>(loc, DenseFPElementsAttr::get(
+      RankedTensorType::get({Grows, Gcols}, rewriter.getF32Type()), G));
+    auto GTValue = rewriter.create<arith::ConstantOp>(loc, DenseFPElementsAttr::get(
+      RankedTensorType::get({Gcols, Grows}, rewriter.getF32Type()), GT));
     /*---------------------------------------------------------*/
     rewriter.setInsertionPoint(inputOp);
     SmallVector<Value> ids, counts;
@@ -476,7 +459,7 @@ class ConvertWinogradFilterTransform final
     // Generate flow stores
     generateFlowStores(inputOp, loopNest.getResults()[0], outputState, loc, rewriter);
 
-    auto ifCond = updateLoopsAndState(loopNest, inputShape, tiles, numWorkgroups, schedule, inputState,
+    updateLoopsAndState(loopNest, inputShape, tiles, numWorkgroups, schedule, inputState,
                         outputState, loc, rewriter);
 
     // Extract slices
@@ -486,12 +469,19 @@ class ConvertWinogradFilterTransform final
       if (size == 1) continue;
       rankReducedSize.push_back(size);
     }
-    inputSlice = extractInputSlice(rankReducedSize, inputState, ifCond, inputSlice, elementType, schedule, tiles, zero, loc, rewriter);
+    inputSlice = extractInputSlice(rankReducedSize, inputState, inputSlice, elementType, schedule, tiles, zero, loc, rewriter);
+
+    SmallVector<int64_t> rankReducedOutputSize;
+    for (auto size : outputState.currentSize) {
+      if (size == 1) continue;
+      rankReducedOutputSize.push_back(size);
+    }
     Value iterArg = loopNest.loops.back().getRegionIterArg(0);
-    outputSlice = extractOutputSlice(rankReducedSize, outputState, iterArg, elementType, loc, rewriter);
+    outputSlice = extractOutputSlice(rankReducedOutputSize, outputState, iterArg, elementType, loc, rewriter);
 
     // Do compute
-    auto result = computeTransform(inputSlice, outputSlice, zero, Bdim, BValue, BTValue, elementType, loc, rewriter);
+    auto result = computeTransform(inputSlice, outputSlice, scratch, zero, rankReducedOutputSize[0],
+                                   rankReducedSize[0], GTValue, GValue, elementType, loc, rewriter);
 
     // Insert slice and update yielded value
     auto updatedTensor = insertSlice(result, iterArg, outputState, loc, rewriter);
@@ -499,17 +489,15 @@ class ConvertWinogradFilterTransform final
       rewriter.replaceOpWithNewOp<scf::YieldOp>(yieldOp, updatedTensor);
     }
 
+    // Remove original ops
+    auto tensorStoreOp = getTensorStoreOp(inputOp);
+    rewriter.eraseOp(tensorStoreOp);
+    auto tensorLoadOp = getTensorLoadOp(inputOp);
+    rewriter.eraseOp(inputOp);
+    rewriter.eraseOp(tensorLoadOp);
 
-    inputOp->getParentOfType<ModuleOp>().dump();
-
-    //// Remove original ops
-    //auto tensorStoreOp = getTensorStoreOp(inputOp);
-    //rewriter.eraseOp(tensorStoreOp);
-    //auto tensorLoadOp = getTensorLoadOp(inputOp);
-    //rewriter.eraseOp(inputOp);
-    //rewriter.eraseOp(tensorLoadOp);
-
-    return failure();
+    funcOp->getParentOfType<ModuleOp>().dump();
+    return success();
   }
 
   LogicalResult matchAndRewrite(IREE::Flow::WinogradFilterTransformOp inputOp,
