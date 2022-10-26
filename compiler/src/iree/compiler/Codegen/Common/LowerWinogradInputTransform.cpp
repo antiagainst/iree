@@ -62,326 +62,467 @@ class ConvertWinogradInputTransform final
  public:
   using OpRewritePattern::OpRewritePattern;
 
-  static LogicalResult applyTiling(IREE::Flow::WinogradInputTransformOp inputOp, std::string &tensorFormat, 
-                                   std::string &outputTensorFormat, std::string &tilingOrder,
-                                   std::vector<int> &tileSizes, std::vector<int> &stepSizes, int numWorkgroups,
+  // State that changes during tiling
+  struct TensorState {
+    SmallVector<OpFoldResult, 4> sizes;  
+    SmallVector<OpFoldResult, 4> offsets;  
+    SmallVector<OpFoldResult, 4> strides;  
+    SmallVector<int64_t, 4> currentSize;  
+  };
+
+  // Per loop information
+  struct TilingInfo {
+    char dim;
+    int64_t lo;
+    int64_t hi;
+    int64_t step;
+    int64_t tile;
+    int isWorkgroup;
+  };
+
+  // The tiling schedule that is implemented
+  struct TilingSchedule {
+    // Map from tensor -> format
+    // "input" : "nhwc"
+    std::unordered_map<std::string, std::string> tensorFormat;
+    std::vector<TilingInfo> tilingInfo;
+  };
+
+  static void initState(TensorState &state, ArrayRef<int64_t> shape,
+                        PatternRewriter &rewriter) {
+    for (int i = 0; i < shape.size(); i++) {
+      state.offsets.push_back(rewriter.getIndexAttr(0));
+      state.sizes.push_back(rewriter.getIndexAttr(shape[i]));
+      state.strides.push_back(rewriter.getIndexAttr(1));
+      state.currentSize.push_back(shape[i]);
+    }
+  }
+
+  static void generateWorkgroupIdsAndCounts(SmallVectorImpl<Value> &ids,
+                                            SmallVectorImpl<Value> &counts,
+                                            size_t &numWorkgroups,
+                                            Location loc,
+                                            PatternRewriter &rewriter) {
+    for (int i = 0; i < numWorkgroups; i++) {
+      ids[i] = rewriter.create<IREE::HAL::InterfaceWorkgroupIDOp>(loc, numWorkgroups - i - 1);
+      counts[i] = rewriter.create<IREE::HAL::InterfaceWorkgroupCountOp>(loc, numWorkgroups - i - 1);
+    }
+  }
+
+  static void computeWorkgroupLoopParams(SmallVectorImpl<Value> &lbs,
+                                         SmallVectorImpl<Value> &ubs,
+                                         SmallVectorImpl<Value> &steps,
+                                         size_t &numWorkgroups,
+                                         std::string tensor,
+                                         ArrayRef<int64_t> tensorShape,
+                                         TilingSchedule &schedule,
+                                         Location loc,
+                                         PatternRewriter &rewriter) {
+    numWorkgroups = 0;
+    for (auto info : schedule.tilingInfo) {
+      if (info.isWorkgroup) {
+        lbs.push_back(rewriter.create<arith::ConstantIndexOp>(loc, info.lo));
+        if (info.hi < 0)  {
+          size_t pos = schedule.tensorFormat[tensor].find(info.dim);
+          info.hi = tensorShape[pos];
+        }
+        ubs.push_back(rewriter.create<arith::ConstantIndexOp>(loc, info.hi));
+        steps.push_back(rewriter.create<arith::ConstantIndexOp>(loc, info.step));
+        numWorkgroups++;
+      }
+    }
+  }
+
+  static void computeLoopParams(SmallVectorImpl<Value> &lbs,
+                                SmallVectorImpl<Value> &ubs,
+                                SmallVectorImpl<Value> &steps,
+                                SmallVectorImpl<Value> &tiles,
+                                size_t numWorkgroups,
+                                std::string tensor,
+                                ArrayRef<int64_t> tensorShape,
+                                TilingSchedule &schedule,
+                                Location loc,
+                                PatternRewriter &rewriter) {
+    for (auto info : schedule.tilingInfo) {
+      if (!info.isWorkgroup) {
+        lbs.push_back(rewriter.create<arith::ConstantIndexOp>(loc, info.lo));
+        if (info.hi < 0)  {
+          size_t pos = schedule.tensorFormat[tensor].find(info.dim);
+          info.hi = tensorShape[pos];
+        }
+        ubs.push_back(rewriter.create<arith::ConstantIndexOp>(loc, info.hi));
+        steps.push_back(rewriter.create<arith::ConstantIndexOp>(loc, info.step));
+        tiles.push_back(rewriter.create<arith::ConstantIndexOp>(loc, info.tile));
+      }
+    }
+  }
+
+  static void updateWorkgroupLoops(scf::LoopNest &workgroupLoopNest, 
+                                   size_t numWorkgroups,
+                                   SmallVectorImpl<Value> &ids,
+                                   SmallVectorImpl<Value> &counts,
+                                   TilingSchedule &schedule,
+                                   Location loc,
                                    PatternRewriter &rewriter) {
-      // Define constants (on top of func)
-      auto loc = inputOp.getLoc();
-      auto funcOp = inputOp->getParentOfType<func::FuncOp>();
-      rewriter.setInsertionPointToStart(&funcOp.getBody().front());
-      Value input = inputOp.getInput();
-      auto inputType = input.getType().cast<ShapedType>();
-      auto inputRank = inputType.getRank();
-      auto inputShape = inputType.getShape();
-      auto elementType = inputType.getElementType();
-
-      Value output = inputOp.getResult();
-      auto outputType = output.getType().cast<ShapedType>();
-      auto outputRank = outputType.getRank();
-      auto outputShape = outputType.getShape();
-
-      std::unordered_map<std::string, std::vector<int64_t>> loopState;
-      std::unordered_map<std::string, std::vector<Value>> values;
-      std::unordered_map<std::string, std::vector<Attribute>> attrs;
-      auto gid = [](const int i, const char c) {
-        std::string id{1, c};
-        return (c + std::to_string(i));
-      };
-      // Set default values for loop state
-      auto zerof32 = rewriter.create<arith::ConstantOp>(loc, rewriter.getZeroAttr(elementType));
-      SmallVector<float> BT{
-        1,     0, -21./4.,        0,  21./4.,       0, -1, 0,
-        0,     1,       1,  -17./4., -17./4.,       1,  1, 0,
-        0,    -1,       1,   17./4., -17./4.,      -1,  1, 0,
-        0,  1./2,   1./4.,   -5./2.,  -5./4.,       2,  1, 0,
-        0,  -1./2,  1./4.,    5./2.,  -5./4.,      -2,  1, 0,
-        0,      2,      4,   -5./2.,      -5,   1./2.,  1, 0,
-        0,     -2,      4,    5./2.,      -5,  -1./2.,  1, 0,
-        0,     -1,      0,   21./4.,       0, -21./4.,  0, 1
-      };
-      int Bdim = std::sqrt(BT.size());
-      SmallVector<float> B;
-      transpose(BT, B, Bdim, Bdim);
-      auto BTValue = rewriter.create<arith::ConstantOp>(loc, DenseFPElementsAttr::get(
-        RankedTensorType::get({Bdim, Bdim}, rewriter.getF32Type()), BT));
-      auto BValue = rewriter.create<arith::ConstantOp>(loc, DenseFPElementsAttr::get(
-        RankedTensorType::get({Bdim, Bdim}, rewriter.getF32Type()), B));
-      for (int i = 0; i < tilingOrder.size(); i++) {
-        char tilingDim = tilingOrder[i];
-        size_t pos = tensorFormat.find(tilingDim);
-        loopState[gid(i, tilingOrder[i])] = {0, inputShape[pos], stepSizes[i], tileSizes[i]};
-        values[gid(i, tilingOrder[i])] = {
-          rewriter.create<arith::ConstantIndexOp>(loc, 0),
-          rewriter.create<arith::ConstantIndexOp>(loc, inputShape[pos]),
-          rewriter.create<arith::ConstantIndexOp>(loc, stepSizes[i]),
-          rewriter.create<arith::ConstantIndexOp>(loc, tileSizes[i])
-        };
-        attrs[gid(i, tilingOrder[i])] = {
-          rewriter.getIndexAttr(tileSizes[i])
-        };
+    auto workgroupLoops = workgroupLoopNest.loops;
+    Value lb, step;
+    for (int i = 0; i < numWorkgroups; i++) {
+      if (i > 0) {
+        rewriter.setInsertionPoint(&workgroupLoops[i - 1].getBody()->front());
+        AffineExpr s0;
+        bindSymbols(rewriter.getContext(), s0);
+        auto tileSize = schedule.tilingInfo[i].tile;
+        AffineMap map = AffineMap::get(0, 1, {s0 * rewriter.getAffineConstantExpr(tileSize)}, rewriter.getContext());
+        lb = rewriter.createOrFold<AffineApplyOp>(loc, map, ValueRange{ids[i]});
+        step = rewriter.createOrFold<AffineApplyOp>(loc, map, ValueRange{counts[i]});
+      } else {
+        lb = ids[i];
+        step = counts[i];
       }
+      workgroupLoops[i].setLowerBound(lb);
+      workgroupLoops[i].setStep(step);
+    }
+  }
 
-      // Generate loops
-      rewriter.setInsertionPoint(inputOp);
-      std::unordered_map<char, Value> ids, counts;    
-      // Workgroup ids are reversed 
-      for (int i = 0; i < numWorkgroups; i++) {
-        ids[tilingOrder[i]] = rewriter.create<IREE::HAL::InterfaceWorkgroupIDOp>(loc, numWorkgroups - i - 1);
-        counts[tilingOrder[i]] = rewriter.create<IREE::HAL::InterfaceWorkgroupCountOp>(loc, numWorkgroups - i - 1);
-        values[gid(i, tilingOrder[i])][0] = ids[tilingOrder[i]];
-        values[gid(i, tilingOrder[i])][2] = counts[tilingOrder[i]];
+  static Value updateLoopsAndState(scf::LoopNest &loopNest, 
+                                  ArrayRef<int64_t> inputShape,
+                                  SmallVectorImpl<Value> &tileSizes,
+                                  size_t numWorkgroups,
+                                  TilingSchedule &schedule,
+                                  TensorState &inputState,
+                                  TensorState &outputState,
+                                  Location loc,
+                                  PatternRewriter &rewriter) {
+    SmallVector<Value> cmpVals;
+    auto loops = loopNest.loops;
+    for (int i = 0; i < loops.size(); i++) {
+      auto info = schedule.tilingInfo[i + numWorkgroups];
+      size_t pos = schedule.tensorFormat["input"].find(info.dim);
+      size_t opos = schedule.tensorFormat["output"].find(info.dim);
+      auto iv = loops[i].getInductionVar();
+      if ((info.dim == 'h') || (info.dim == 'w')) {
+        rewriter.setInsertionPoint(&loops[i].getBody()->front());
+        AffineExpr dim0;
+        auto t = rewriter.getAffineConstantExpr(info.tile);
+        auto delta = rewriter.getAffineConstantExpr(inputShape[pos]);
+        bindDims(rewriter.getContext(), dim0);
+        AffineMap minMap = AffineMap::get(1, 0, {-dim0 + delta, t}, rewriter.getContext());
+        inputState.sizes[pos] = rewriter.createOrFold<AffineMinOp>(loc, minMap, ValueRange{iv});
+        cmpVals.push_back(rewriter.create<arith::CmpIOp>(
+              loc, arith::CmpIPredicate::eq, inputState.sizes[pos].dyn_cast<Value>(),
+              tileSizes[i]));
+        auto s = rewriter.getAffineConstantExpr(info.step);
+        AffineMap outputMap = AffineMap::get(1, 0, {dim0.floorDiv(s)}, rewriter.getContext());
+        size_t offpos = info.dim == 'h' ? schedule.tensorFormat["output"].find('H') 
+                                        : schedule.tensorFormat["output"].find('W');
+        outputState.offsets[offpos] = rewriter.createOrFold<AffineApplyOp>(loc, outputMap, ValueRange{iv});
       }
-
-      auto asIndexAttr = [&](int64_t i) {
-        return rewriter.getIndexAttr(i);
-      };
-
-      SmallVector<OpFoldResult> offsets(inputRank, asIndexAttr(0));
-      SmallVector<int64_t> currentSize;
-      SmallVector<OpFoldResult> sizes; 
-      for (int i = 0; i < inputRank; i++) {
-        sizes.push_back(asIndexAttr(inputShape[i]));
-        currentSize.push_back(inputShape[i]);
+      if (info.dim == 'c') {
+        // Assumes input and output have c dimension
+        inputState.sizes[pos] = rewriter.getIndexAttr(info.tile);
+        outputState.sizes[opos] = rewriter.getIndexAttr(info.tile);
       }
-      SmallVector<OpFoldResult> strides(inputRank, asIndexAttr(1));
+      inputState.offsets[pos] = iv;
+      inputState.currentSize[pos] = info.tile;
+    }
 
-      SmallVector<OpFoldResult> outputOffsets(outputRank, asIndexAttr(0));
-      SmallVector<int64_t> currentOutputSize(outputRank, 0);
-      SmallVector<OpFoldResult> outputSizes(outputRank, asIndexAttr(1)); 
-      for (int i = 0; i < outputRank; i++) {
-        outputSizes[i] = asIndexAttr(outputShape[i]);
-        currentOutputSize[i] = outputShape[i];
+    rewriter.setInsertionPoint(&loops.back().getBody()->front());
+    assert(cmpVals.size() == 2);
+    return rewriter.create<arith::AndIOp>(loc, cmpVals[0], cmpVals[1]);
+  }
+
+  static IREE::Flow::DispatchTensorLoadOp getTensorLoadOp(IREE::Flow::WinogradInputTransformOp op) {
+     return op.getInput().getDefiningOp<IREE::Flow::DispatchTensorLoadOp>();
+  }
+
+  static IREE::Flow::DispatchTensorStoreOp getTensorStoreOp(IREE::Flow::WinogradInputTransformOp op) {
+    auto users = llvm::to_vector(op.getResult().getUsers());
+    assert(!users.empty());
+    return dyn_cast<IREE::Flow::DispatchTensorStoreOp>(users[0]);
+  }
+
+  static void updateStateAfterWorkgroupTiling(TensorState &state, std::string tensor,
+                                              TilingSchedule &schedule, 
+                                              scf::LoopNest &workgroupLoopNest,
+                                              PatternRewriter &rewriter) {
+    auto workgroupLoops = workgroupLoopNest.loops;
+    int i{0};
+    for (auto info : schedule.tilingInfo) {
+      if (info.isWorkgroup) {
+        size_t pos = schedule.tensorFormat[tensor].find(info.dim);
+        state.offsets[pos] = workgroupLoops[i].getInductionVar(); 
+        state.sizes[pos] = rewriter.getIndexAttr(info.tile);
+        state.currentSize[pos] = info.tile;
+        i++;
       }
-      SmallVector<OpFoldResult> outputStrides(outputRank, asIndexAttr(1));
+    }
+  }
 
-      // First build workgroup loop nests
-      Value loadedSlice, loadedOutputSlice;
-      Value targetOutputTensor;
-      SmallVector<OpFoldResult> dispatchOffsets, dispatchSizes;
-      for (auto dim : llvm::enumerate(tilingOrder)) {
-        if (dim.index() >= numWorkgroups) break;
-        auto d = gid(dim.index(), dim.value());
-        size_t pos = tensorFormat.find(dim.value());
-        size_t opos = outputTensorFormat.find(dim.value());
-        Value lo = values[d][0];
-        Value hi = values[d][1];
-        Value step = values[d][2];
-        auto tile = attrs[d][0];
-        if ((dim.index() > 0) && (dim.index() < numWorkgroups)) {
-          // Emit affine.apply ops
-          AffineExpr s0;
-          bindSymbols(rewriter.getContext(), s0);
-          AffineMap map = AffineMap::get(0, 1, {s0 * rewriter.getAffineConstantExpr(tileSizes[dim.index()])}, rewriter.getContext());
-          lo = rewriter.createOrFold<AffineApplyOp>(loc, map, ValueRange{lo});
-          step = rewriter.createOrFold<AffineApplyOp>(loc, map, ValueRange{step});
-        }
-        auto forOp = rewriter.create<scf::ForOp>(loc, lo, hi, step);
-        offsets[pos] = forOp.getInductionVar();
-        sizes[pos] = tile;
-        currentSize[pos] = tile.cast<IntegerAttr>().getValue().getSExtValue();
-        if (opos != std::string::npos) {
-          outputOffsets[opos] = forOp.getInductionVar();
-          outputSizes[opos] = tile;
-          currentOutputSize[opos] = tile.cast<IntegerAttr>().getValue().getSExtValue();
-        }
-        rewriter.setInsertionPoint(forOp.getBody()->getTerminator());
-        if (dim.index() == numWorkgroups - 1) {
-          // Emit flow.dispatch ops for input
-          auto tensorLoadOp = input.getDefiningOp<IREE::Flow::DispatchTensorLoadOp>();
-          if (!tensorLoadOp) return failure();
-          auto tensorType = RankedTensorType::get(currentSize, elementType);
-          loadedSlice = rewriter.create<IREE::Flow::DispatchTensorLoadOp>(loc, tensorType,
-            tensorLoadOp.getSource(), ValueRange({}), offsets, sizes, strides).getResult();
-          // Emit flow.dispatch ops for output
-          for (auto user : inputOp.getResult().getUsers()) {
-            if (auto tensorStoreOp = dyn_cast<IREE::Flow::DispatchTensorStoreOp>(user)) {
-              auto outputTensorType = RankedTensorType::get(currentOutputSize, elementType);
-              targetOutputTensor = tensorStoreOp.getTarget();
-              loadedOutputSlice = rewriter.create<IREE::Flow::DispatchTensorLoadOp>(loc, outputTensorType,
-                tensorStoreOp.getTarget(), ValueRange({}), outputOffsets, outputSizes, outputStrides).getResult();
-              dispatchSizes = outputSizes;
-              dispatchOffsets = outputOffsets;
-              break;
-            }
+  static Value generateFlowLoads(IREE::Flow::WinogradInputTransformOp op,
+                                 std::string tensor,
+                                 TensorState &state,
+                                 Type elementType,
+                                 Location loc,
+                                 PatternRewriter &rewriter) {
+    if (tensor == "input") {
+      auto tensorLoadOp = getTensorLoadOp(op);
+      auto tensorType = RankedTensorType::get(state.currentSize, elementType);
+      return rewriter.create<IREE::Flow::DispatchTensorLoadOp>(loc, tensorType,
+        tensorLoadOp.getSource(), ValueRange({}), state.offsets, state.sizes, state.strides).getResult();
+    } else {
+      auto tensorStoreOp = getTensorStoreOp(op);
+      auto tensorType = RankedTensorType::get(state.currentSize, elementType);
+      return rewriter.create<IREE::Flow::DispatchTensorLoadOp>(loc, tensorType,
+        tensorStoreOp.getTarget(), ValueRange({}), state.offsets, state.sizes, state.strides).getResult();
+    }
+  }
+
+  static void generateFlowStores(IREE::Flow::WinogradInputTransformOp op,
+                                  Value result,
+                                  TensorState &state,
+                                  Location loc,
+                                  PatternRewriter &rewriter) {
+      auto tensorStoreOp = getTensorStoreOp(op);
+      rewriter.create<IREE::Flow::DispatchTensorStoreOp>(loc, result,
+         tensorStoreOp.getTarget(), ValueRange({}), state.offsets, state.sizes, state.strides);
+  }
+
+  static Value extractInputSlice(SmallVectorImpl<int64_t> &rankReducedSize,
+                                 TensorState &state,
+                                 Value ifCond,
+                                 Value inputSlice,
+                                 Type elementType,
+                                 TilingSchedule &schedule,
+                                 SmallVectorImpl<Value> &tileSizes,
+                                 Value zero,
+                                 Location loc,
+                                 PatternRewriter &rewriter) {
+
+    auto thenBuilder = [&](OpBuilder &builder, Location loc) {
+      auto tensorType = RankedTensorType::get(rankReducedSize, elementType);
+      SmallVector<OpFoldResult, 4> sizes = state.sizes;
+      // Force shapes to be static
+      for (auto info : schedule.tilingInfo) {
+        if (!info.isWorkgroup) {
+          if ((info.dim == 'h') || (info.dim == 'w')) {
+            size_t pos = schedule.tensorFormat["input"].find(info.dim);
+            sizes[pos] = rewriter.getIndexAttr(info.tile);
           }
         }
-        // Update total size for subsequent tilings
-        for (int j = 0; j < tilingOrder.size(); j++) {
-          if ((dim.index() != j)  && (tilingOrder[j] == dim.value())) {
-            auto dnew = gid(j, tilingOrder[j]);
-            values[dnew][1] = values[d][3];
-          }
+      }
+      auto res = builder.create<tensor::ExtractSliceOp>(loc, tensorType,
+        inputSlice, state.offsets, sizes, state.strides).getResult();
+      builder.create<scf::YieldOp>(loc, res);
+    };
+
+    auto elseBuilder = [&](OpBuilder &builder, Location loc) {
+      SmallVector<int64_t> rankReducedDynamicSize;
+      for (auto size : llvm::enumerate(state.currentSize)) {
+        auto tensorFormat = schedule.tensorFormat["input"];
+        if ((tensorFormat[size.index()] == 'h') || (tensorFormat[size.index()] == 'w')) {
+          rankReducedDynamicSize.push_back(ShapedType::kDynamicSize);
+          continue;
+        }
+        if (size.value() == 1) continue;
+        rankReducedDynamicSize.push_back(size.value());
+      }
+      auto tensorType = RankedTensorType::get(rankReducedDynamicSize, elementType);
+      auto slice = builder.create<tensor::ExtractSliceOp>(loc, tensorType,
+        inputSlice, state.offsets, state.sizes, state.strides).getResult();
+      SmallVector<OpFoldResult> lowPad{rankReducedDynamicSize.size(), builder.getIndexAttr(0)};
+      SmallVector<OpFoldResult> hiPad;
+      int k{0};
+      for (auto infoPair : llvm::enumerate(schedule.tilingInfo)) {
+        auto info = infoPair.value();
+        if (info.isWorkgroup) continue;
+        if ((info.dim == 'h') || (info.dim == 'w')) {
+          size_t pos = schedule.tensorFormat["input"].find(info.dim);
+          hiPad.push_back(builder.create<arith::SubIOp>(loc, tileSizes[k++], state.sizes[pos].dyn_cast<Value>()).getResult());
         }
       }
+      auto padTensorOp = builder.create<tensor::PadOp>(loc, 
+         RankedTensorType::get(rankReducedSize, elementType), slice, lowPad, hiPad);
+      auto &region = padTensorOp.getRegion();
+      int rank = padTensorOp.getResultType().getRank();
+      SmallVector<Type> blockArgTypes(rank, rewriter.getIndexType());
+      SmallVector<Location> blockArgLocs(rank, loc);
+      builder.createBlock(&region, region.end(), blockArgTypes, blockArgLocs);
+      builder.create<tensor::YieldOp>(loc, zero);
+      builder.setInsertionPointAfter(padTensorOp);
+      builder.create<scf::YieldOp>(loc, padTensorOp.getResult());
+    };
 
-      auto bodyBuilder = [&](OpBuilder &nestedBuilder, Location loc, ValueRange outputIvs, ValueRange iterArgs) {
-        SmallVector<Value> eqZeroCmpVals;
-        SmallVector<Value> spatialDims;
-        int c{0};
-        for (auto dim : llvm::enumerate(tilingOrder)) {
-          if (dim.index() < numWorkgroups) continue;
-          auto d = gid(dim.index(), dim.value());
-          size_t pos = tensorFormat.find(dim.value());
-          size_t opos = outputTensorFormat.find(dim.value());
-          auto tile = attrs[d][0];
-          if ((dim.value() == 'h') || (dim.value() == 'w')) {
-            // Emit affine min ops for sliding window
-            AffineExpr dim0;
-            auto t = rewriter.getAffineConstantExpr(tileSizes[dim.index()]);
-            auto delta = rewriter.getAffineConstantExpr(inputShape[pos]);
-            bindDims(rewriter.getContext(), dim0);
-            AffineMap minMap = AffineMap::get(1, 0, {-dim0 + delta, t}, rewriter.getContext());
-            auto size = rewriter.createOrFold<AffineMinOp>(loc, minMap, ValueRange{outputIvs[c]});
-            eqZeroCmpVals.push_back(rewriter.create<arith::CmpIOp>(
-                    loc, arith::CmpIPredicate::eq, size, values[d][3]));
-            spatialDims.push_back(size);
-            // Emit affine ops for output dims
-            auto s = rewriter.getAffineConstantExpr(stepSizes[dim.index()]);
-            AffineMap outputMap = AffineMap::get(1, 0, {dim0.floorDiv(s)}, rewriter.getContext());
-            size_t offpos = dim.value() == 'h' ? outputTensorFormat.find('H') : outputTensorFormat.find('W');
-            outputOffsets[offpos] = rewriter.createOrFold<AffineApplyOp>(loc, outputMap, ValueRange{outputIvs[c]});
-          }
-          // Update offsets and size
-          offsets[pos] = outputIvs[c];
-          sizes[pos] = tile;
-          currentSize[pos] = tile.cast<IntegerAttr>().getValue().getSExtValue();
-          if (opos != std::string::npos) {
-            outputOffsets[opos] = outputIvs[c];
-            outputSizes[opos] = tile;
-            currentOutputSize[opos] = tile.cast<IntegerAttr>().getValue().getSExtValue();
-          }
-          // Update total size for subsequent tilings
-          for (int j = 0; j < tilingOrder.size(); j++) {
-            if ((dim.index() != j)  && (tilingOrder[j] == dim.value())) {
-              auto dnew = gid(j, tilingOrder[j]);
-              values[dnew][1] = values[d][3];
-            }
-          }
-          c++;
-        }
+    return rewriter.create<scf::IfOp>(loc, 
+       RankedTensorType::get(rankReducedSize, elementType), 
+       ifCond, thenBuilder, elseBuilder).getResult(0);
+  }
 
-        assert(eqZeroCmpVals.size() == 2);
-        Value ifCond = rewriter.create<arith::AndIOp>(loc, eqZeroCmpVals[0], eqZeroCmpVals[1]);
+  static Value extractOutputSlice(SmallVectorImpl<int64_t> &rankReducedSize,
+                                  TensorState &state,
+                                  Value iterArg,
+                                  Type elementType,
+                                  Location loc,
+                                  PatternRewriter &rewriter) {
+    state.sizes[3] = state.sizes[4] = rewriter.getIndexAttr(1);
+    return rewriter.create<tensor::ExtractSliceOp>(loc, 
+          RankedTensorType::get(rankReducedSize, elementType), iterArg,
+          state.offsets, state.sizes, state.strides);
+  }
 
-        SmallVector<int64_t> rankReducedSize;
-        for (auto size : currentSize) {
-          if (size == 1) continue;
-          rankReducedSize.push_back(size);
-        }
+  static Value computeTransform(Value input,
+                                Value output,
+                                Value zero,
+                                int Bdim,
+                                Value B,
+                                Value BT,
+                                Type elementType,
+                                Location loc,
+                                PatternRewriter &rewriter) {
+    Value interim, accumulator;
+    auto matmulType = RankedTensorType::get({Bdim, Bdim}, elementType);
+    accumulator = rewriter.create<linalg::FillOp>(loc, ValueRange{zero}, ValueRange{output}).result();
+    interim = rewriter.create<linalg::MatmulOp>(loc, matmulType, ValueRange{input, B}, accumulator).getResult(0);
+    accumulator = rewriter.create<linalg::FillOp>(loc, ValueRange{zero}, ValueRange{output}).result();
+    return rewriter.create<linalg::MatmulOp>(loc, matmulType, ValueRange{BT, interim}, accumulator).getResult(0);
+  }
 
-        auto thenBuilder = [&](OpBuilder &builder, Location loc) {
-          // Remove unit dims from size during extraction
-          auto tensorType = RankedTensorType::get(rankReducedSize, elementType);
-          auto res = builder.create<tensor::ExtractSliceOp>(loc, tensorType,
-            loadedSlice, offsets, sizes, strides).getResult();
-          builder.create<scf::YieldOp>(loc, res);
-        };
+  static Value insertSlice(Value transformed,
+                          Value outputSlice,
+                          TensorState &state,
+                          Location loc,
+                          PatternRewriter &rewriter) {
+    return rewriter.create<tensor::InsertSliceOp>(loc, transformed, outputSlice,
+        state.offsets, state.sizes, state.strides).getResult();
+  }
 
-        auto elseBuilder = [&](OpBuilder &builder, Location loc) {
-          // Remove unit dims from size during extraction
-          SmallVector<int64_t> rankReducedDynamicSize;
-          int k{0};
-          for (auto size : llvm::enumerate(currentSize)) {
-            if ((tensorFormat[size.index()] == 'h') || (tensorFormat[size.index()] == 'w')) {
-              rankReducedDynamicSize.push_back(ShapedType::kDynamicSize);
-              sizes[size.index()] = spatialDims[k++];
-              continue;
-            }
-            if (size.value() == 1) continue;
-            rankReducedDynamicSize.push_back(size.value());
-          }
-          auto tensorType = RankedTensorType::get(rankReducedDynamicSize, elementType);
-          auto slice = builder.create<tensor::ExtractSliceOp>(loc, tensorType,
-            loadedSlice, offsets, sizes, strides).getResult();
-          SmallVector<OpFoldResult> hiPad;
-          k = 0;
-          for (auto dim : llvm::enumerate(tilingOrder)) {
-            auto d = gid(dim.index(), dim.value());
-            if ((dim.value() == 'h') || (dim.value() == 'w')) {
-              hiPad.push_back(builder.create<arith::SubIOp>(loc, values[d][3], spatialDims[k++]).getResult());
-            }
-          }
-          SmallVector<OpFoldResult> lowPad{rankReducedDynamicSize.size(), builder.getIndexAttr(0)};
-          auto padTensorOp = builder.create<tensor::PadOp>(loc, 
-             RankedTensorType::get(rankReducedSize, elementType), slice, lowPad, hiPad);
-          auto &region = padTensorOp.getRegion();
-          int rank = padTensorOp.getResultType().getRank();
-          SmallVector<Type> blockArgTypes(rank, rewriter.getIndexType());
-          SmallVector<Location> blockArgLocs(rank, loc);
-          builder.createBlock(&region, region.end(), blockArgTypes, blockArgLocs);
-          builder.create<tensor::YieldOp>(loc, zerof32);
-          builder.setInsertionPointAfter(padTensorOp);
-          builder.create<scf::YieldOp>(loc, padTensorOp.getResult());
-        };
+  static LogicalResult applySchedule(IREE::Flow::WinogradInputTransformOp inputOp,
+                                     TilingSchedule &schedule, PatternRewriter &rewriter) {
 
-        // Compute quadratic form
-        auto inputTileTxT = rewriter.create<scf::IfOp>(loc, 
-           RankedTensorType::get(rankReducedSize, elementType), 
-           ifCond, thenBuilder, elseBuilder).getResult(0);
+    // Get input info
+    auto loc = inputOp.getLoc();
+    auto input = inputOp.getInput();
+    auto inputType = input.getType().cast<ShapedType>();
+    auto inputShape = inputType.getShape();
+    auto elementType = inputType.getElementType();
 
-        // Extract output slice
-        outputSizes[3] = outputSizes[4] = rewriter.getIndexAttr(1);
-        auto outputSlice = rewriter.create<tensor::ExtractSliceOp>(loc, 
-              RankedTensorType::get(rankReducedSize, elementType), iterArgs[iterArgs.size() - 1],
-              outputOffsets, outputSizes, outputStrides);
+    // Get output info
+    auto output = inputOp.getResult();
+    auto outputType = output.getType().cast<ShapedType>();
+    auto outputRank = outputType.getRank();
+    auto outputShape = outputType.getShape();
 
-        Value interim, accumulator;
-        auto matmulType = RankedTensorType::get({Bdim, Bdim}, elementType);
-        accumulator = rewriter.create<linalg::FillOp>(loc, ValueRange{zerof32}, ValueRange{outputSlice}).result();
-        interim = rewriter.create<linalg::MatmulOp>(loc, matmulType, ValueRange{inputTileTxT, BValue}, accumulator).getResult(0);
-        accumulator = rewriter.create<linalg::FillOp>(loc, ValueRange{zerof32}, ValueRange{outputSlice}).result();
-        auto transformed = rewriter.create<linalg::MatmulOp>(loc, matmulType, ValueRange{BTValue, interim}, accumulator).getResult(0);
+    // Initialize tensor state
+    TensorState inputState, outputState;
+    initState(inputState, inputShape, rewriter);
+    initState(outputState, outputShape, rewriter);
 
-        auto resultSlice = rewriter.create<tensor::InsertSliceOp>(loc, transformed, loadedOutputSlice,
-            outputOffsets, outputSizes, outputStrides).getResult();
+    // Generate workgroup loop nest
+    auto funcOp = inputOp->getParentOfType<func::FuncOp>();
+    rewriter.setInsertionPointToStart(&funcOp.getBody().front());
+    SmallVector<Value> lbs, ubs, steps, tiles;
+    size_t numWorkgroups{0};
+    computeWorkgroupLoopParams(lbs, ubs, steps, numWorkgroups, "input", inputShape, schedule, loc, rewriter);
+    // Create additional constants
+    auto zero = rewriter.create<arith::ConstantOp>(loc, rewriter.getZeroAttr(elementType));
+    /*---------------------------------------------------------*/
+    // Input filter constants
+    SmallVector<float> BT{
+      1,     0, -21./4.,        0,  21./4.,       0, -1, 0,
+      0,     1,       1,  -17./4., -17./4.,       1,  1, 0,
+      0,    -1,       1,   17./4., -17./4.,      -1,  1, 0,
+      0,  1./2,   1./4.,   -5./2.,  -5./4.,       2,  1, 0,
+      0,  -1./2,  1./4.,    5./2.,  -5./4.,      -2,  1, 0,
+      0,      2,      4,   -5./2.,      -5,   1./2.,  1, 0,
+      0,     -2,      4,    5./2.,      -5,  -1./2.,  1, 0,
+      0,     -1,      0,   21./4.,       0, -21./4.,  0, 1
+    };
+    int Bdim = std::sqrt(BT.size());
+    SmallVector<float> B;
+    transpose(BT, B, Bdim, Bdim);
+    auto BTValue = rewriter.create<arith::ConstantOp>(loc, DenseFPElementsAttr::get(
+      RankedTensorType::get({Bdim, Bdim}, rewriter.getF32Type()), BT));
+    auto BValue = rewriter.create<arith::ConstantOp>(loc, DenseFPElementsAttr::get(
+      RankedTensorType::get({Bdim, Bdim}, rewriter.getF32Type()), B));
+    /*---------------------------------------------------------*/
+    rewriter.setInsertionPoint(inputOp);
+    SmallVector<Value> ids, counts;
+    generateWorkgroupIdsAndCounts(ids, counts, numWorkgroups, loc, rewriter);
 
-        return resultSlice;
-      };
+    auto workgroupLoopNest = scf::buildLoopNest(rewriter, loc, lbs, ubs, steps, ValueRange({}),
+      [&](OpBuilder &nestedBuilder, Location loc, ValueRange outputIvs, ValueRange iterArgs) -> scf::ValueVector {
+        return {};
+    });
+    updateWorkgroupLoops(workgroupLoopNest, numWorkgroups, ids, counts, schedule, loc, rewriter);
+    updateStateAfterWorkgroupTiling(inputState, "input", schedule, workgroupLoopNest, rewriter);
+    updateStateAfterWorkgroupTiling(outputState, "output", schedule, workgroupLoopNest, rewriter);
 
-      // Next build loops with carry
-      SmallVector<Value> lbs, ubs, steps;
-      for (auto dim : llvm::enumerate(tilingOrder)) {
-        if (dim.index() < numWorkgroups) continue;
-        auto d = gid(dim.index(), dim.value());
-        lbs.push_back(values[d][0]);
-        ubs.push_back(values[d][1]);
-        steps.push_back(values[d][2]);
-      }
-      auto loopNest = scf::buildLoopNest(rewriter, loc, lbs, ubs, steps, ValueRange({loadedOutputSlice}),
-        [&](OpBuilder &nestedBuilder, Location loc, ValueRange outputIvs, ValueRange iterArgs) -> scf::ValueVector {
-          return {bodyBuilder(nestedBuilder, loc, outputIvs, iterArgs)};
-      });
+    // Generate flow loads
+    rewriter.setInsertionPoint(&workgroupLoopNest.loops.back().getBody()->front());
+    Value inputSlice = generateFlowLoads(inputOp, "input", inputState, elementType, loc, rewriter);
+    Value outputSlice = generateFlowLoads(inputOp, "output", outputState, elementType, loc, rewriter);
 
-      // Store result
-      rewriter.create<IREE::Flow::DispatchTensorStoreOp>(loc, loopNest.getResults()[0],
-         targetOutputTensor, ValueRange({}), dispatchOffsets, dispatchSizes, outputStrides);
+    // Generate rest of loops
+    rewriter.setInsertionPointToStart(&funcOp.getBody().front());
+    lbs.clear();
+    ubs.clear();
+    steps.clear();
+    computeLoopParams(lbs, ubs, steps, tiles, numWorkgroups, "input", inputShape, schedule, loc, rewriter);
+    rewriter.setInsertionPoint(&workgroupLoopNest.loops.back().getBody()->back());
+    auto loopNest = scf::buildLoopNest(rewriter, loc, lbs, ubs, steps, ValueRange({outputSlice}),
+      [&](OpBuilder &nestedBuilder, Location loc, ValueRange outputIvs, ValueRange iterArgs) -> scf::ValueVector {
+        return {iterArgs[0]};
+    });
 
-      // Remove input op and related load/store
-      for (auto user : inputOp.getResult().getUsers()) {
-        if (auto tensorStoreOp = dyn_cast<IREE::Flow::DispatchTensorStoreOp>(user)) {
-          rewriter.eraseOp(tensorStoreOp);
-          break;
-        }
-      }
-      auto tensorLoadOp = input.getDefiningOp<IREE::Flow::DispatchTensorLoadOp>();
-      if (tensorLoadOp) {
-        rewriter.eraseOp(inputOp);
-        rewriter.eraseOp(tensorLoadOp);
-      }
-      return success();
+    // Generate flow stores
+    generateFlowStores(inputOp, loopNest.getResults()[0], outputState, loc, rewriter);
+
+    auto ifCond = updateLoopsAndState(loopNest, inputShape, tiles, numWorkgroups, schedule, inputState,
+                        outputState, loc, rewriter);
+
+    // Extract slices
+    SmallVector<int64_t> rankReducedSize;
+    // Remove unit dims from size during extraction
+    for (auto size : inputState.currentSize) {
+      if (size == 1) continue;
+      rankReducedSize.push_back(size);
+    }
+    inputSlice = extractInputSlice(rankReducedSize, inputState, ifCond, inputSlice, elementType, schedule, tiles, zero, loc, rewriter);
+    Value iterArg = loopNest.loops.back().getRegionIterArg(0);
+    outputSlice = extractOutputSlice(rankReducedSize, outputState, iterArg, elementType, loc, rewriter);
+
+    // Do compute
+    auto result = computeTransform(inputSlice, outputSlice, zero, Bdim, BValue, BTValue, elementType, loc, rewriter);
+
+    // Insert slice and update yielded value
+    auto updatedTensor = insertSlice(result, iterArg, outputState, loc, rewriter);
+    if (scf::YieldOp yieldOp = dyn_cast<scf::YieldOp>(loopNest.loops.back().getBody()->getTerminator())) {
+      rewriter.replaceOpWithNewOp<scf::YieldOp>(yieldOp, updatedTensor);
+    }
+
+    // Remove original ops
+    auto tensorStoreOp = getTensorStoreOp(inputOp);
+    rewriter.eraseOp(tensorStoreOp);
+    auto tensorLoadOp = getTensorLoadOp(inputOp);
+    rewriter.eraseOp(inputOp);
+    rewriter.eraseOp(tensorLoadOp);
+
+    return success();
   }
 
   LogicalResult matchAndRewrite(IREE::Flow::WinogradInputTransformOp inputOp,
                                 PatternRewriter &rewriter) const override {
 
-    std::string inputTensorFormat{"nhwc"};
-    std::string outputTensorFormat{"ttnHWc"};
-    std::string tilingOrder{"nchwc"};
-    std::vector<int> tileSizes{1,32,8,8,1};
-    std::vector<int> stepSizes{1,32,6,6,1};
-    int numWorkgroups = 2; // Implies top 2 will be used for workgroups
-    if (failed(applyTiling(inputOp, inputTensorFormat, outputTensorFormat, tilingOrder, tileSizes, stepSizes, numWorkgroups, rewriter)))
+    TilingSchedule schedule;
+    schedule.tensorFormat = {{"input", "nhwc"}, {"output", "tpnHWc"}};
+    schedule.tilingInfo = {
+      /* dim, lo, hi, step, tile, is_workgroup */
+      {'n', 0, -1,  1,  1,  1},
+      {'c', 0, -1, 32, 32,  1},
+      {'h', 0, -1,  6,  8,  0},
+      {'w', 0, -1,  6,  8,  0},
+      {'c', 0, 32,  1,  1,  0}
+    };
+    if (failed(applySchedule(inputOp, schedule, rewriter)))
       return failure();
   
     return success();
