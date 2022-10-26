@@ -66,6 +66,15 @@ void SPIRVLowerExecutableTargetPass::runOnOperation() {
 
   OpPassManager pipeline(IREE::HAL::ExecutableVariantOp::getOperationName());
 
+  // Convert Winograd ops
+  PassManager passManager(moduleOp.getContext());
+  OpPassManager &nestedFunctionPM = passManager.nest<func::FuncOp>();
+  nestedFunctionPM.addPass(createLowerWinogradInputTransformPass());
+  // TODO: Add lowering for filter, output and batch-matmul
+  if (failed(passManager.run(moduleOp))) {
+    return signalPassFailure();
+  }
+
   if (failed(initSPIRVLaunchConfig(moduleOp))) {
     return signalPassFailure();
   }
@@ -99,23 +108,29 @@ void SPIRVLowerExecutableTargetPass::runOnOperation() {
   if (!testLoweringConfiguration && passPipeline.has_value()) {
     switch (*passPipeline) {
       case IREE::Codegen::DispatchLoweringPassPipeline::SPIRVBaseDistribute:
+        printf("base\n");
         addSPIRVBaseDistributePassPipeline(pipeline);
         break;
       case IREE::Codegen::DispatchLoweringPassPipeline::SPIRVBaseVectorize:
+        printf("basevec\n");
         addSPIRVBaseVectorizePassPipeline(pipeline);
         break;
       case IREE::Codegen::DispatchLoweringPassPipeline::
           SPIRVCooperativeMatrixVectorize:
+        printf("spvcoop\n");
         addSPIRVCooperativeMatrixVectorizePassPipeline(pipeline);
         break;
       case IREE::Codegen::DispatchLoweringPassPipeline::
           SPIRVMatmulPromoteVectorize:
+        printf("spvmmpromo\n");
         addSPIRVMatmulPromoteVectorizePassPipeline(pipeline);
         break;
       case IREE::Codegen::DispatchLoweringPassPipeline::SPIRVSubgroupReduce:
+        printf("subgroup\n");
         addSPIRVSubgroupReducePassPipeline(pipeline);
         break;
       case IREE::Codegen::DispatchLoweringPassPipeline::SPIRVWinogradVectorize:
+        printf("wino\n");
         addSPIRVWinogradVectorizePassPipeline(pipeline);
         break;
       default:

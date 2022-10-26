@@ -10,6 +10,7 @@
 #include <numeric>
 
 #include "iree-dialects/Dialect/LinalgExt/IR/LinalgExtOps.h"
+#include "iree/compiler/Dialect/Flow/IR/FlowOps.h"
 #include "iree/compiler/Codegen/Common/UserConfig.h"
 #include "iree/compiler/Codegen/Dialect/LoweringConfig.h"
 #include "iree/compiler/Codegen/SPIRV/Utils.h"
@@ -1040,6 +1041,14 @@ static LogicalResult setSPIRVOpConfig(const spirv::TargetEnv &targetEnv,
 //===----------------------------------------------------------------------===//
 // Entry Point
 //===----------------------------------------------------------------------===//
+
+static bool hasWinogradOp(func::FuncOp funcOp) {
+  auto inputOps = funcOp.getOps<IREE::Flow::WinogradInputTransformOp>();
+  auto filterOps = funcOp.getOps<IREE::Flow::WinogradFilterTransformOp>();
+  auto outputOps = funcOp.getOps<IREE::Flow::WinogradOutputTransformOp>();
+  auto bmmOps = funcOp.getOps<IREE::Flow::WinogradBatchMatmulOp>();
+  return ((!inputOps.empty()) || (!filterOps.empty()) || (!outputOps.empty()) || (!bmmOps.empty()));
+}
 
 LogicalResult initSPIRVLaunchConfig(ModuleOp module) {
   llvm::StringMap<IREE::HAL::ExecutableExportOp> exportOps =

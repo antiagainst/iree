@@ -118,6 +118,12 @@ def ConvertConv2dToWinograd :
   let constructor = "mlir::iree_compiler::createConvertConv2dToWinogradPass()";
 }
 
+def LowerWinogradInputTransform :
+    Pass<"iree-codegen-lower-winograd-input", "func::FuncOp"> {
+  let summary = "Lower winograd input transform to loops";
+  let constructor = "mlir::iree_compiler::createLowerWinogradInputTransformPass()";
+}
+
 def WorkgroupSpecialization :
     Pass<"iree-codegen-workgroup-specialization", "func::FuncOp"> {
   let summary = "Specialize workgroup distribution loops";

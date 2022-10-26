@@ -164,11 +164,12 @@ SmallVector<Range> getWinogradLoopRanges(Operation *op, Location loc,
     return {};
   }
 
-  SmallVector<Range> loopRanges(input.getType().cast<ShapedType>().getRank(),
-                              Range{zero, one, one});
+  auto inputType = input.getType().cast<ShapedType>();
+  SmallVector<Range> loopRanges(inputType.getRank(), Range{zero, one, one});
+  auto shape = inputType.getShape();
   for (auto dim : llvm::seq<unsigned>(0, loopRanges.size())) {
     loopRanges[dim].size =
-        builder.create<tensor::DimOp>(loc, input, dim).getResult();
+        builder.create<arith::ConstantIndexOp>(loc, shape[dim]).getResult();
   }
   return loopRanges;
 }

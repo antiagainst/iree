@@ -321,7 +321,7 @@ void addSPIRVMatmulPromoteVectorizePassPipeline(OpPassManager &pm) {
 
 void addSPIRVWinogradVectorizePassPipeline(OpPassManager &pm) {
   addTileAndDistributeToWorkgroupsPasses(pm);
-  addWinogradPasses(pm);
+  //addWinogradPasses(pm);
 
   auto &nestedModulePM = pm.nest<ModuleOp>();
   addBufferizePasses(nestedModulePM, gpuAllocateWorkgroupMemoryFn);

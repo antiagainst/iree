@@ -236,6 +236,11 @@ struct TileAndDistributeToWorkgroupsPass
 };
 }  // namespace
 
+static LogicalResult transformWinogradInput(func::FuncOp funcOp, IREE::Flow::WinogradInputTransformOp inputOp) {
+  printf("found one!\n");
+  return failure();
+}
+
 void TileAndDistributeToWorkgroupsPass::runOnOperation() {
   MLIRContext *context = &getContext();
   IREE::HAL::ExecutableVariantOp variantOp = getOperation();
@@ -246,6 +251,15 @@ void TileAndDistributeToWorkgroupsPass::runOnOperation() {
   for (func::FuncOp funcOp : innerModule.getOps<func::FuncOp>()) {
     auto exportOp = entryPoints.lookup(funcOp.getName());
     if (!exportOp) continue;
+
+    // Check for winograd input op and transform to double matmul
+    auto inputOps = funcOp.getOps<IREE::Flow::WinogradInputTransformOp>();
+    for (auto inputOp : inputOps) {
+      if (failed(transformWinogradInput(funcOp, inputOp))) {
+        funcOp.emitOpError("failed to transform winograd input op");
+        return signalPassFailure();
+      }
+    }
 
     SmallVector<Operation *> computeOps;
     SmallVector<LoopTilingAndDistributionInfo> tiledLoops;

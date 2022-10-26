@@ -118,6 +118,9 @@ createTileAndDistributeToWorkgroupsPass();
 std::unique_ptr<OperationPass<func::FuncOp>> 
 createConvertConv2dToWinogradPass();
 
+std::unique_ptr<OperationPass<func::FuncOp>> 
+createLowerWinogradInputTransformPass();
+
 /// Pass to specialize workgroup distribution loops
 std::unique_ptr<OperationPass<func::FuncOp>>
 createWorkgroupSpecializationPass();

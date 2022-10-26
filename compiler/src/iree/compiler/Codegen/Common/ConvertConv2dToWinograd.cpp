@@ -269,7 +269,7 @@ class ConvertConv2DNhwcHwcf final
       rewriter.create<linalg::MatmulOp>(loc, outputType, ValueRange{BTValue, interim}, accumulator);
     }
 
-    convOp->getParentOfType<ModuleOp>().dump();
+    //convOp->getParentOfType<ModuleOp>().dump();
     
     return failure();
   }

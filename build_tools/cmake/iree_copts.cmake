@@ -144,7 +144,7 @@ iree_select_compiler_opts(IREE_DEFAULT_COPTS
   # internally is very useful when importing. If you feel that some of these
   # should be different (especially more strict), please raise an issue!
   CLANG
-    "-Werror"
+  #"-Werror"
     "-Wall"
 
     # Disable warnings we don't care about or that generally have a low
