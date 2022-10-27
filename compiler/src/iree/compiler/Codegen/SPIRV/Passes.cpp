@@ -424,6 +424,7 @@ void buildSPIRVCodegenPassPipeline(OpPassManager &pm, bool enableFastMath) {
   // Convert Winograd ops
   pm.nest<ModuleOp>().nest<func::FuncOp>().addPass(createLowerWinogradInputTransformPass());
   pm.nest<ModuleOp>().nest<func::FuncOp>().addPass(createLowerWinogradFilterTransformPass());
+  pm.nest<ModuleOp>().nest<func::FuncOp>().addPass(createLowerWinogradBatchMatmulPass());
 
   pm.addPass(createSPIRVLowerExecutableTargetPass());
 

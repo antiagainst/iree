@@ -124,6 +124,9 @@ createLowerWinogradInputTransformPass();
 std::unique_ptr<OperationPass<func::FuncOp>> 
 createLowerWinogradFilterTransformPass();
 
+std::unique_ptr<OperationPass<func::FuncOp>> 
+createLowerWinogradBatchMatmulPass();
+
 /// Pass to specialize workgroup distribution loops
 std::unique_ptr<OperationPass<func::FuncOp>>
 createWorkgroupSpecializationPass();

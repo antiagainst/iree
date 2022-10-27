@@ -87,6 +87,7 @@ iree_cc_library(
     "IREEComprehensiveBufferizePass.cpp"
     "LowerWinogradInputTransform.cpp"
     "LowerWinogradFilterTransform.cpp"
+    "LowerWinogradBatchMatmul.cpp"
     "OptimizeVectorTransferPass.cpp"
     "PolynomialApproximationPass.cpp"
     "TestPartitionableLoopsInterface.cpp"

@@ -203,12 +203,12 @@ class ConvertWinogradInputTransform final
       if ((info.dim == 'h') || (info.dim == 'w')) {
         rewriter.setInsertionPoint(&loops[i].getBody()->front());
         AffineExpr dim0;
-        //auto t = rewriter.getAffineConstantExpr(info.tile);
-        //auto delta = rewriter.getAffineConstantExpr(inputShape[pos]);
+        auto t = rewriter.getAffineConstantExpr(info.tile);
+        auto delta = rewriter.getAffineConstantExpr(inputShape[pos]);
         bindDims(rewriter.getContext(), dim0);
-        //AffineMap minMap = AffineMap::get(1, 0, {-dim0 + delta, t}, rewriter.getContext());
-        inputState.sizes[pos] = rewriter.getIndexAttr(info.tile);
-        //inputState.sizes[pos] = rewriter.createOrFold<AffineMinOp>(loc, minMap, ValueRange{iv});
+        AffineMap minMap = AffineMap::get(1, 0, {-dim0 + delta, t}, rewriter.getContext());
+        //inputState.sizes[pos] = rewriter.getIndexAttr(info.tile);
+        inputState.sizes[pos] = rewriter.createOrFold<AffineMinOp>(loc, minMap, ValueRange{iv});
         //cmpVals.push_back(rewriter.create<arith::CmpIOp>(
         //      loc, arith::CmpIPredicate::eq, inputState.sizes[pos].dyn_cast<Value>(),
         //      tileSizes[i]));
@@ -273,6 +273,11 @@ class ConvertWinogradInputTransform final
       auto loadTensor = rewriter.create<IREE::Flow::DispatchTensorLoadOp>(loc, tensorType,
         tensorLoadOp.getSource(), ValueRange({}), state.offsets, state.sizes, state.strides).getResult();
       return loadTensor;
+      //SmallVector<OpFoldResult> offsets(state.offsets.size(), rewriter.getIndexAttr(0));
+      //auto zeroScratch = rewriter.create<linalg::FillOp>(loc, ValueRange{zero}, ValueRange{scratch}).result();
+      //auto result = rewriter.create<tensor::InsertSliceOp>(loc, loadTensor, zeroScratch, 
+      //  offsets, state.sizes, state.strides).getResult();
+      //return result;
       // Apply padding
       //SmallVector<OpFoldResult> loPad(state.sizes.size(), rewriter.getIndexAttr(0));
       //SmallVector<OpFoldResult> hiPad(state.sizes.size(), rewriter.getIndexAttr(0));
@@ -312,6 +317,7 @@ class ConvertWinogradInputTransform final
   static Value extractInputSlice(SmallVectorImpl<int64_t> &rankReducedSize,
                                  TensorState &state,
                                  Value inputSlice,
+                                 Value scratch,
                                  Type elementType,
                                  TilingSchedule &schedule,
                                  SmallVectorImpl<Value> &tileSizes,
@@ -319,20 +325,19 @@ class ConvertWinogradInputTransform final
                                  Location loc,
                                  PatternRewriter &rewriter) {
 
-    auto tensorType = RankedTensorType::get(rankReducedSize, elementType);
-    SmallVector<OpFoldResult, 4> sizes = state.sizes;
-    // Force shapes to be static
-    for (auto info : schedule.tilingInfo) {
-      if (!info.isWorkgroup) {
-        if ((info.dim == 'h') || (info.dim == 'w')) {
-          size_t pos = schedule.tensorFormat["input"].find(info.dim);
-          sizes[pos] = rewriter.getIndexAttr(info.tile);
-        }
-      }
-    }
-    return rewriter.create<tensor::ExtractSliceOp>(loc, tensorType,
-      inputSlice, state.offsets, sizes, state.strides).getResult();
-#if 0
+#if 1
+    auto tensorType = RankedTensorType::get(SmallVector<int64_t>{ShapedType::kDynamicSize, ShapedType::kDynamicSize}, elementType);
+    auto dynamicSlice = rewriter.create<tensor::ExtractSliceOp>(loc, tensorType,
+      inputSlice, state.offsets, state.sizes, state.strides).getResult();
+    Value zeroScratch = rewriter.create<linalg::FillOp>(loc, ValueRange{zero}, ValueRange{scratch}).result();
+    SmallVector<OpFoldResult> offsets(rankReducedSize.size(), rewriter.getIndexAttr(0));
+    SmallVector<OpFoldResult> strides(rankReducedSize.size(), rewriter.getIndexAttr(1));
+    SmallVector<OpFoldResult> sizes(rankReducedSize.size(), rewriter.getIndexAttr(1));
+    sizes[0] = state.sizes[1];
+    sizes[1] = state.sizes[2];
+    return rewriter.create<tensor::InsertSliceOp>(loc, dynamicSlice,
+      zeroScratch, offsets, sizes, strides).getResult();
+#else
     auto thenBuilder = [&](OpBuilder &builder, Location loc) {
       auto tensorType = RankedTensorType::get(rankReducedSize, elementType);
       SmallVector<OpFoldResult, 4> sizes = state.sizes;
@@ -364,32 +369,43 @@ class ConvertWinogradInputTransform final
       auto tensorType = RankedTensorType::get(rankReducedDynamicSize, elementType);
       auto slice = builder.create<tensor::ExtractSliceOp>(loc, tensorType,
         inputSlice, state.offsets, state.sizes, state.strides).getResult();
-      SmallVector<OpFoldResult> lowPad{rankReducedDynamicSize.size(), builder.getIndexAttr(0)};
-      SmallVector<OpFoldResult> hiPad;
-      int k{0};
-      for (auto infoPair : llvm::enumerate(schedule.tilingInfo)) {
-        auto info = infoPair.value();
-        if (info.isWorkgroup) continue;
-        if ((info.dim == 'h') || (info.dim == 'w')) {
-          size_t pos = schedule.tensorFormat["input"].find(info.dim);
-          hiPad.push_back(builder.create<arith::SubIOp>(loc, tileSizes[k++], state.sizes[pos].dyn_cast<Value>()).getResult());
-        }
-      }
-      auto padTensorOp = builder.create<tensor::PadOp>(loc, 
-         RankedTensorType::get(rankReducedSize, elementType), slice, lowPad, hiPad);
-      auto &region = padTensorOp.getRegion();
-      int rank = padTensorOp.getResultType().getRank();
-      SmallVector<Type> blockArgTypes(rank, rewriter.getIndexType());
-      SmallVector<Location> blockArgLocs(rank, loc);
-      builder.createBlock(&region, region.end(), blockArgTypes, blockArgLocs);
-      builder.create<tensor::YieldOp>(loc, zero);
-      builder.setInsertionPointAfter(padTensorOp);
-      builder.create<scf::YieldOp>(loc, padTensorOp.getResult());
+#ifdef SLICE
+      SmallVector<OpFoldResult> offsets(rankReducedDynamicSize.size(), builder.getIndexAttr(0));
+      SmallVector<OpFoldResult> strides(rankReducedDynamicSize.size(), builder.getIndexAttr(1));
+      SmallVector<OpFoldResult> sizes(rankReducedDynamicSize.size(), builder.getIndexAttr(1));
+      sizes[0] = state.sizes[1];
+      sizes[1] = state.sizes[2];
+      auto result = builder.create<tensor::InsertSliceOp>(loc, slice, scratch, 
+        offsets, sizes, strides).getResult();
+      builder.create<scf::YieldOp>(loc, result);
+#else
+      //SmallVector<OpFoldResult> lowPad{rankReducedDynamicSize.size(), builder.getIndexAttr(0)};
+      //SmallVector<OpFoldResult> hiPad;
+      //int k{0};
+      //for (auto infoPair : llvm::enumerate(schedule.tilingInfo)) {
+      //  auto info = infoPair.value();
+      //  if (info.isWorkgroup) continue;
+      //  if ((info.dim == 'h') || (info.dim == 'w')) {
+      //    size_t pos = schedule.tensorFormat["input"].find(info.dim);
+      //    hiPad.push_back(builder.create<arith::SubIOp>(loc, tileSizes[k++], state.sizes[pos].dyn_cast<Value>()).getResult());
+      //  }
+      //}
+      //auto padTensorOp = builder.create<tensor::PadOp>(loc, 
+      //   RankedTensorType::get(rankReducedSize, elementType), slice, lowPad, hiPad);
+      //auto &region = padTensorOp.getRegion();
+      //int rank = padTensorOp.getResultType().getRank();
+      //SmallVector<Type> blockArgTypes(rank, rewriter.getIndexType());
+      //SmallVector<Location> blockArgLocs(rank, loc);
+      //builder.createBlock(&region, region.end(), blockArgTypes, blockArgLocs);
+      //builder.create<tensor::YieldOp>(loc, zero);
+      //builder.setInsertionPointAfter(padTensorOp);
+      //builder.create<scf::YieldOp>(loc, padTensorOp.getResult());
     };
 
     return rewriter.create<scf::IfOp>(loc, 
        RankedTensorType::get(rankReducedSize, elementType), 
        ifCond, thenBuilder, elseBuilder).getResult(0);
+#endif
 #endif
   }
 
@@ -478,6 +494,19 @@ class ConvertWinogradInputTransform final
       RankedTensorType::get({Bdim, Bdim}, rewriter.getF32Type()), BT));
     auto BValue = rewriter.create<arith::ConstantOp>(loc, DenseFPElementsAttr::get(
       RankedTensorType::get({Bdim, Bdim}, rewriter.getF32Type()), B));
+    int padH{0};
+    int padW{0};
+    for (auto info : schedule.tilingInfo) {
+      if (info.dim == 'h') {
+        padH = info.step * std::ceil((float) (inputShape[1] - info.tile) / info.step) 
+             + info.tile - inputShape[1];
+      }
+      if (info.dim == 'w') {
+        padW = info.step * std::ceil((float) (inputShape[2] - info.tile) / info.step) 
+             + info.tile - inputShape[2];
+      }
+    }
+    auto scratch = rewriter.create<tensor::EmptyOp>(loc, SmallVector<int64_t>{Bdim, Bdim}, elementType);
     /*---------------------------------------------------------*/
     rewriter.setInsertionPoint(inputOp);
     SmallVector<Value> ids, counts;
@@ -493,18 +522,6 @@ class ConvertWinogradInputTransform final
 
     // Generate flow loads
     rewriter.setInsertionPoint(&workgroupLoopNest.loops.back().getBody()->front());
-    int padH{0};
-    int padW{0};
-    for (auto info : schedule.tilingInfo) {
-      if (info.dim == 'h') {
-        padH = info.step * std::ceil((float) (inputShape[1] - info.tile) / info.step) 
-             + info.tile - inputShape[1];
-      }
-      if (info.dim == 'w') {
-        padW = info.step * std::ceil((float) (inputShape[2] - info.tile) / info.step) 
-             + info.tile - inputShape[2];
-      }
-    }
     Value inputSlice = generateFlowLoads(inputOp, padH, padW, zero, "input", inputState, elementType, loc, rewriter);
     Value outputSlice = generateFlowLoads(inputOp, padH, padW, zero, "output", outputState, elementType, loc, rewriter);
 
@@ -532,7 +549,7 @@ class ConvertWinogradInputTransform final
       if (size == 1) continue;
       rankReducedSize.push_back(size);
     }
-    inputSlice = extractInputSlice(rankReducedSize, inputState, inputSlice, elementType, schedule, tiles, zero, loc, rewriter);
+    inputSlice = extractInputSlice(rankReducedSize, inputState, inputSlice, scratch, elementType, schedule, tiles, zero, loc, rewriter);
     Value iterArg = loopNest.loops.back().getRegionIterArg(0);
     outputSlice = extractOutputSlice(rankReducedSize, outputState, iterArg, elementType, loc, rewriter);
 
@@ -548,12 +565,10 @@ class ConvertWinogradInputTransform final
     // Remove original ops
     auto tensorStoreOp = getTensorStoreOp(inputOp);
     rewriter.eraseOp(tensorStoreOp);
-    //auto tensorLoadOp = getTensorLoadOp(inputOp);
-    //rewriter.eraseOp(inputOp);
-    //rewriter.eraseOp(tensorLoadOp);
-    inputOp->getParentOfType<ModuleOp>().dump();
+    auto tensorLoadOp = getTensorLoadOp(inputOp);
+    rewriter.eraseOp(inputOp);
+    rewriter.eraseOp(tensorLoadOp);
 
-    return failure();
     return success();
   }
 
