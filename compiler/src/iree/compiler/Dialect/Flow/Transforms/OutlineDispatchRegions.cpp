@@ -176,6 +176,9 @@ static LogicalResult convertToDispatchOp(DispatchWorkgroupsOp regionOp,
     regionOp.getResult(i).replaceAllUsesWith(dispatchOp.getResult(i));
   }
 
+  if (regionOp->hasAttr("type"))
+    exportOp->setAttr("type", regionOp->getAttr("type"));
+
   // Erase original region.
   regionOp.erase();
 

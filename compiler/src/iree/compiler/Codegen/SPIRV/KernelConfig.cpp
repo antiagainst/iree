@@ -1063,7 +1063,6 @@ LogicalResult initSPIRVLaunchConfig(ModuleOp module) {
       return funcOp.emitOpError("failed to get compute ops");
     }
 
-    funcOp.dump();
     if (computeOps.empty()) {
       return funcOp.emitOpError(
           "unhandled translation of function without compute ops");

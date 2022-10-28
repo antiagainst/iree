@@ -404,6 +404,8 @@ struct ConvertExecutableOp
           exportOp.getLoc(), exportOp.getSymName(),
           exportOp.getFunctionRefAttr());
       newOp->setDialectAttrs(exportOp->getDialectAttrs());
+      if (exportOp->hasAttr("type"))
+        newOp->setAttr("type", exportOp->getAttr("type"));
       if (!exportOp.getWorkgroupCount().empty()) {
         mlir::BlockAndValueMapping mapper;
         exportOp.getWorkgroupCount().cloneInto(&newOp.getWorkgroupCount(),

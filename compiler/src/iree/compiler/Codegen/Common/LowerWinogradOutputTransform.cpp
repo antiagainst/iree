@@ -192,6 +192,13 @@ class ConvertWinogradOutputTransform final
                                   Location loc,
                                   PatternRewriter &rewriter) {
     auto loops = loopNest.loops;
+    // First reset all input and output offsets to 0
+    for (auto &offset : inputState.offsets) {
+      offset = rewriter.getIndexAttr(0);
+    }
+    for (auto &offset : outputState.offsets) {
+      offset = rewriter.getIndexAttr(0);
+    }
     for (int i = 0; i < loops.size(); i++) {
       auto info = schedule.tilingInfo[i + numWorkgroups];
       size_t pos = schedule.tensorFormat["input"].find(info.dim);
@@ -223,6 +230,7 @@ class ConvertWinogradOutputTransform final
         // Assumes input and output have c dimension
         inputState.sizes[pos] = rewriter.getIndexAttr(info.tile);
         outputState.sizes[opos] = rewriter.getIndexAttr(info.tile);
+        outputState.offsets[opos] = iv;
       }
       inputState.offsets[pos] = iv;
       inputState.currentSize[pos] = info.tile;

@@ -141,8 +141,6 @@ static bool isWinogradOp(Operation *op) {
     return true;
   if (auto winogradOp = dyn_cast<IREE::Flow::WinogradOutputTransformOp>(op))
     return true;
-  if (auto winogradOp = dyn_cast<IREE::Flow::WinogradBatchMatmulOp>(op))
-    return true;
   return false;
 }
 
@@ -151,25 +149,37 @@ SmallVector<Range> getWinogradLoopRanges(Operation *op, Location loc,
   OpFoldResult zero = builder.getIndexAttr(0);
   OpFoldResult one = builder.getIndexAttr(1);
   Value input;
+  SmallVector<int64_t, 2> wgShape;
+  SmallVector<int64_t, 2> indices;
   if (auto winogradOp = dyn_cast<IREE::Flow::WinogradInputTransformOp>(op)) {
+    // For input, distribute on batch, channels
     input = winogradOp.getInput();
+    auto inputType = input.getType().cast<ShapedType>();
+    auto shape = inputType.getShape();
+    wgShape = {shape[0], shape[3]};
+    indices = {0, 3};
   } else if (auto winogradOp = dyn_cast<IREE::Flow::WinogradFilterTransformOp>(op)) {
+    // For filter, distribute on channels in, channels out
     input = winogradOp.getFilter();
+    auto inputType = input.getType().cast<ShapedType>();
+    auto shape = inputType.getShape();
+    wgShape = {shape[2], shape[3]};
+    indices = {2, 3};
   } else if (auto winogradOp = dyn_cast<IREE::Flow::WinogradOutputTransformOp>(op)) {
+    // For output, distribute on batch, channels
     input = winogradOp.getOutput();
-  } else if (auto winogradOp = dyn_cast<IREE::Flow::WinogradBatchMatmulOp>(op)) {
-    // This needs to be modified
-    input = winogradOp.getInput();
+    auto inputType = input.getType().cast<ShapedType>();
+    auto shape = inputType.getShape();
+    wgShape = {shape[2], shape[5]};
+    indices = {2, 5};
   } else {
     return {};
   }
 
-  auto inputType = input.getType().cast<ShapedType>();
-  SmallVector<Range> loopRanges(inputType.getRank(), Range{zero, one, one});
-  auto shape = inputType.getShape();
+  SmallVector<Range> loopRanges(2, Range{zero, one, one});
   for (auto dim : llvm::seq<unsigned>(0, loopRanges.size())) {
     loopRanges[dim].size =
-        builder.create<arith::ConstantIndexOp>(loc, shape[dim]).getResult();
+        builder.create<arith::ConstantIndexOp>(loc, wgShape[dim]).getResult();
   }
   return loopRanges;
 }
@@ -347,9 +357,6 @@ buildOperandLessFlowDispatchWorkgroupOp(PatternRewriter &rewriter, Location loc,
       if (auto winogradOp = dyn_cast<IREE::Flow::WinogradOutputTransformOp>(op)) {
         resultTypes.push_back(winogradOp.getResult().getType());
       }
-      if (auto winogradOp = dyn_cast<IREE::Flow::WinogradBatchMatmulOp>(op)) {
-        resultTypes.push_back(winogradOp.getResult().getType());
-      }
     } else {
       if (failed(computeDispatchResultTypeAndDynamicDims(
               rewriter, op, resultTypes, resultDynamicDims))) {
@@ -435,6 +442,21 @@ buildOperandLessFlowDispatchWorkgroupOp(PatternRewriter &rewriter, Location loc,
 
   LLVM_DEBUG(llvm::dbgs() << "Created dispatchOp shell \n"
                           << *dispatchOp << "\n");
+
+  for (auto op : dispatchOps) {
+    if (isWinogradOp(op)) {
+      if (auto winogradOp = dyn_cast<IREE::Flow::WinogradInputTransformOp>(op)) {
+        dispatchOp->setAttr("type", rewriter.getStringAttr("winograd_input"));
+      }
+      if (auto winogradOp = dyn_cast<IREE::Flow::WinogradFilterTransformOp>(op)) {
+        dispatchOp->setAttr("type", rewriter.getStringAttr("winograd_filter"));
+      }
+      if (auto winogradOp = dyn_cast<IREE::Flow::WinogradOutputTransformOp>(op)) {
+        dispatchOp->setAttr("type", rewriter.getStringAttr("winograd_output"));
+      }
+    }
+  }
+
   return clonedOps;
 }
 
@@ -1299,8 +1321,7 @@ void DispatchLinalgOnTensorsPass::runOnOperation() {
     computeOpDispatchPatterns.insert<
       CreateWinogradDispatchRegionOp<IREE::Flow::WinogradInputTransformOp, OpRewritePattern>,
       CreateWinogradDispatchRegionOp<IREE::Flow::WinogradFilterTransformOp, OpRewritePattern>,
-      CreateWinogradDispatchRegionOp<IREE::Flow::WinogradOutputTransformOp, OpRewritePattern>,
-      CreateWinogradDispatchRegionOp<IREE::Flow::WinogradBatchMatmulOp, OpRewritePattern>
+      CreateWinogradDispatchRegionOp<IREE::Flow::WinogradOutputTransformOp, OpRewritePattern>
     >(context);
     if (failed(createDispatchRegionsFromRootOps(
             funcOp, std::move(computeOpDispatchPatterns)))) {

@@ -218,6 +218,77 @@ struct LowerDispatchWorkgroupCountForDagRootOp
   SmallVector<unsigned> partitionedLoops;
 };
 
+struct WinogradLowerDispatchWorkgroupCountForDagRootOp
+    : OpRewritePattern<IREE::Flow::DispatchWorkgroupCountFromDagRootOp> {
+  WinogradLowerDispatchWorkgroupCountForDagRootOp(MLIRContext *context, StringRef type, PatternBenefit benefit = 1)
+      : OpRewritePattern(context, benefit), winogradType(type) {}
+
+  LogicalResult matchAndRewrite(
+      IREE::Flow::DispatchWorkgroupCountFromDagRootOp workgroupCountOp,
+      PatternRewriter &rewriter) const override {
+    auto workloadValues = workgroupCountOp.operands();
+    SmallVector<int64_t> givenTileSizes, givenStaticLoopRanges;
+    SmallVector<int64_t> partitionedLoops = {0, 1};
+    if (winogradType == "winograd_input") {
+      givenTileSizes = {1, 32};
+      givenStaticLoopRanges = {2, 1280};
+    }
+    if (winogradType == "winograd_filter") {
+      givenTileSizes = {32, 32};
+      givenStaticLoopRanges = {1280, 1280};
+    }
+    if (winogradType == "winograd_output") {
+      givenTileSizes = {1, 32};
+      givenStaticLoopRanges = {2, 1280};
+    }
+
+    SmallVector<OpFoldResult> tileSizes = llvm::to_vector(llvm::map_range(
+        givenTileSizes,
+        [&](int64_t v) -> OpFoldResult { return rewriter.getIndexAttr(v); }));
+
+    Attribute zero = rewriter.getIndexAttr(0);
+    tileSizes.resize(workloadValues.size(), zero);
+    SmallVector<int64_t> staticLoopRanges = givenStaticLoopRanges;
+    staticLoopRanges.resize(workloadValues.size(), ShapedType::kDynamicSize);
+    Location loc = workgroupCountOp.getLoc();
+    auto numTiles = llvm::to_vector(llvm::map_range(
+        llvm::zip(workloadValues, staticLoopRanges, tileSizes),
+        [&](std::tuple<Value, int64_t, OpFoldResult> p) -> OpFoldResult {
+          auto tileSize = std::get<2>(p);
+          if (isConstantIntValue(tileSize, 0)) {
+            return rewriter.getIndexAttr(1);
+          }
+
+          int64_t staticLoopRange = std::get<1>(p);
+          OpFoldResult workload =
+              (staticLoopRange == ShapedType::kDynamicSize
+                   ? OpFoldResult(std::get<0>(p))
+                   : OpFoldResult(rewriter.getIndexAttr(staticLoopRange)));
+          AffineExpr s0, s1;
+          bindSymbols(rewriter.getContext(), s0, s1);
+          SmallVector<OpFoldResult> mapOperands = {workload, tileSize};
+          return makeComposedFoldedAffineApply(rewriter, loc, s0.ceilDiv(s1),
+                                               mapOperands);
+        }));
+
+    // Prune the numtiles for just the partitioned loops. Iterate in reverse
+    // since the number of workgroups is specified from fastest varying to
+    // slowest varying.
+    SmallVector<Value> numWorkgroups;
+    for (auto partitionedLoop : llvm::reverse(partitionedLoops)) {
+      numWorkgroups.push_back(getValueOrCreateConstantIndexOp(
+          rewriter, loc, numTiles[partitionedLoop]));
+    }
+    Value one = rewriter.create<arith::ConstantIndexOp>(loc, 1);
+    numWorkgroups.resize(kNumMaxParallelDims, one);
+    rewriter.replaceOp(workgroupCountOp, numWorkgroups);
+    return success();
+  }
+
+ private:
+  StringRef winogradType;
+};
+
 //===---------------------------------------------------------------------===//
 // Patterns and methods for tile and distribute of Linalg ops to workgroups.
 //===---------------------------------------------------------------------===//
@@ -236,11 +307,6 @@ struct TileAndDistributeToWorkgroupsPass
 };
 }  // namespace
 
-static LogicalResult transformWinogradInput(func::FuncOp funcOp, IREE::Flow::WinogradInputTransformOp inputOp) {
-  printf("found one!\n");
-  return failure();
-}
-
 void TileAndDistributeToWorkgroupsPass::runOnOperation() {
   MLIRContext *context = &getContext();
   IREE::HAL::ExecutableVariantOp variantOp = getOperation();
@@ -252,15 +318,6 @@ void TileAndDistributeToWorkgroupsPass::runOnOperation() {
     auto exportOp = entryPoints.lookup(funcOp.getName());
     if (!exportOp) continue;
 
-    // Check for winograd input op and transform to double matmul
-    auto inputOps = funcOp.getOps<IREE::Flow::WinogradInputTransformOp>();
-    for (auto inputOp : inputOps) {
-      if (failed(transformWinogradInput(funcOp, inputOp))) {
-        funcOp.emitOpError("failed to transform winograd input op");
-        return signalPassFailure();
-      }
-    }
-
     SmallVector<Operation *> computeOps;
     SmallVector<LoopTilingAndDistributionInfo> tiledLoops;
     if (failed(getComputeOps(funcOp, computeOps, tiledLoops))) {
@@ -269,6 +326,18 @@ void TileAndDistributeToWorkgroupsPass::runOnOperation() {
     }
     if (!tiledLoops.empty()) {
       // The entry point already has distribution to workgroups. Do nothing.
+      if (exportOp->hasAttr("type")) {
+          // Lower the workgroup count ops.
+          {
+            RewritePatternSet patterns(context);
+            StringRef winogradType = exportOp->getAttr("type").dyn_cast<StringAttr>().getValue();
+            patterns.insert<WinogradLowerDispatchWorkgroupCountForDagRootOp>(context, winogradType);
+            if (failed(applyPatternsAndFoldGreedily(exportOp, std::move(patterns)))) {
+              exportOp.emitOpError("failed to lower number of workgroups");
+              return signalPassFailure();
+            }
+          }
+      }
       continue;
     }
     SmallVector<int64_t> tileSizes, staticLoopRanges, interchange;

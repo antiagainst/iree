@@ -261,6 +261,9 @@ static LogicalResult declareEntryPointOps(
           targetBuilder.getIndexAttr(ordinal), layoutAttr, ArrayAttr{},
           IntegerAttr{});
 
+      if (exportOp->hasAttr("type"))
+        newExportOp->setAttr("type", exportOp->getAttr("type"));
+
       // Clone the workgroup count calculation function.
       if (!exportOp.getWorkgroupCount().empty()) {
         mlir::BlockAndValueMapping mapper;
