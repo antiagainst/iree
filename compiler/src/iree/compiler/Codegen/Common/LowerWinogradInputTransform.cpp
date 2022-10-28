@@ -104,8 +104,8 @@ class ConvertWinogradInputTransform final
                                             Location loc,
                                             PatternRewriter &rewriter) {
     for (int i = 0; i < numWorkgroups; i++) {
-      ids[i] = rewriter.create<IREE::HAL::InterfaceWorkgroupIDOp>(loc, numWorkgroups - i - 1);
-      counts[i] = rewriter.create<IREE::HAL::InterfaceWorkgroupCountOp>(loc, numWorkgroups - i - 1);
+      ids.push_back(rewriter.create<IREE::HAL::InterfaceWorkgroupIDOp>(loc, numWorkgroups - i - 1));
+      counts.push_back(rewriter.create<IREE::HAL::InterfaceWorkgroupCountOp>(loc, numWorkgroups - i - 1));
     }
   }
 
@@ -521,6 +521,7 @@ class ConvertWinogradInputTransform final
     updateStateAfterWorkgroupTiling(outputState, "output", schedule, workgroupLoopNest, rewriter);
 
     // Generate flow loads
+    updateWorkgroupLoops(workgroupLoopNest, numWorkgroups, ids, counts, schedule, loc, rewriter);
     rewriter.setInsertionPoint(&workgroupLoopNest.loops.back().getBody()->front());
     Value inputSlice = generateFlowLoads(inputOp, padH, padW, zero, "input", inputState, elementType, loc, rewriter);
     Value outputSlice = generateFlowLoads(inputOp, padH, padW, zero, "output", outputState, elementType, loc, rewriter);

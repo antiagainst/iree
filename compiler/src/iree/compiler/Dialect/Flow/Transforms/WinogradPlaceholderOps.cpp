@@ -39,6 +39,18 @@ class ConvertConv2DNhwcHwcf final
  public:
   using OpRewritePattern::OpRewritePattern;
 
+  static Value createCollapseOrExpand(Value tensor, Location loc, PatternRewriter &rewriter,
+                                      SmallVectorImpl<int64_t> &outputShape,
+                                      SmallVectorImpl<ReassociationIndices> &reassociations,
+                                      bool collapse) {
+    auto tensorType = tensor.getType().cast<ShapedType>();
+    auto elementTy = tensorType.getElementType();
+    auto resultType = RankedTensorType::get(outputShape, elementTy);
+    if (collapse)
+      return rewriter.create<tensor::CollapseShapeOp>(loc, resultType, tensor, reassociations);
+    return rewriter.create<tensor::ExpandShapeOp>(loc, resultType, tensor, reassociations);
+  }
+
   LogicalResult matchAndRewrite(linalg::Conv2DNhwcHwcfOp convOp,
                                 PatternRewriter &rewriter) const override {
 
@@ -73,12 +85,12 @@ class ConvertConv2DNhwcHwcf final
                    + inputTileSize - ih;
     const int padW = outputTileSize * std::ceil((float) (iw - inputTileSize) / outputTileSize) 
                    + inputTileSize - iw;
+    auto zero = rewriter.create<arith::ConstantOp>(loc, rewriter.getZeroAttr(elementType));
 
     //SmallVector<OpFoldResult> loPad{inputShape.size(), rewriter.getIndexAttr(0)};
     //SmallVector<OpFoldResult> hiPad{inputShape.size(), rewriter.getIndexAttr(0)};
     //hiPad[1] = rewriter.getIndexAttr(padH);
     //hiPad[2] = rewriter.getIndexAttr(padW);
-    //auto zero = rewriter.create<arith::ConstantOp>(loc, rewriter.getZeroAttr(elementType));
     //auto padTensorOp = rewriter.create<tensor::PadOp>(loc, 
     //     RankedTensorType::get(SmallVector<int64_t>{in, ih + padH, iw + padW, ic}, elementType), input, loPad, hiPad);
     //auto &region = padTensorOp.getRegion();
@@ -101,11 +113,46 @@ class ConvertConv2DNhwcHwcf final
     auto transformedKernelType = RankedTensorType::get({inputTileSize, inputTileSize, oc, ic}, elementType);
     auto tKernel = rewriter.create<IREE::Flow::WinogradFilterTransformOp>(loc, transformedKernelType, kernel);
 
-    auto bmmOutputType = RankedTensorType::get({inputTileSize, inputTileSize, in * ihm * iwm, oc}, elementType);
-    auto bmmResult = rewriter.create<IREE::Flow::WinogradBatchMatmulOp>(loc, bmmOutputType, tInput, tKernel);
+    // Add collapse shape
+    SmallVector<int64_t> collapsedShape{inputTileSize * inputTileSize, in * ihm * iwm, ic};
+    SmallVector<ReassociationIndices> reassociations = {{0, 1}, {2, 3, 4}, {5}};
+    auto cInput = createCollapseOrExpand(tInput, loc, rewriter, collapsedShape, reassociations, true);
 
+    SmallVector<int64_t> collapsedFilterShape{inputTileSize * inputTileSize, oc, ic};
+    SmallVector<ReassociationIndices> filterReassociations = {{0, 1}, {2}, {3}};
+    auto cKernel = createCollapseOrExpand(tKernel, loc, rewriter, collapsedFilterShape, filterReassociations, true);
+
+    SmallVector<int64_t> bmmShape{inputTileSize * inputTileSize, in * ihm * iwm, oc};
+    auto bmmOutputType = RankedTensorType::get(bmmShape, elementType);
+    Value emptyTensor = rewriter.create<tensor::EmptyOp>(loc, bmmShape, elementType);
+    Value accumulator = rewriter.create<linalg::FillOp>(loc, ValueRange{zero}, ValueRange{emptyTensor}).result();
+    auto bmmResult = rewriter.create<linalg::BatchMatmulOp>(loc, bmmOutputType,
+      ValueRange({cInput, cKernel}), ValueRange({accumulator})).getResult(0);
+
+    // Add expand shape
+    SmallVector<int64_t> expandedShape{inputTileSize, inputTileSize, in, ihm, iwm, oc};
+    SmallVector<ReassociationIndices> resultReassociations = {{0, 1}, {2, 3, 4}, {5}};
+    auto eResult = createCollapseOrExpand(bmmResult, loc, rewriter, expandedShape, resultReassociations, false);
+
+    // TODO: Remove this when DPS passes
+    // Create padded output and then extract slice
     Value output = convOp.getOutputs()[0];
-    auto tOutput = rewriter.create<IREE::Flow::WinogradOutputTransformOp>(loc, output.getType(), bmmResult);
+    auto outputType = output.getType().cast<RankedTensorType>();
+    auto outputShape = outputType.getShape();
+    const int oh = outputShape[1];
+    const int ow = outputShape[2];
+    auto paddedOutputType = RankedTensorType::get(SmallVector<int64_t>{in, (outputTileSize * (int64_t) std::ceil((float)oh/outputTileSize)), 
+                              (outputTileSize * (int64_t) std::ceil((float)ow/outputTileSize)), oc}, elementType);
+    auto pOutput = rewriter.create<IREE::Flow::WinogradOutputTransformOp>(loc, paddedOutputType, eResult);
+
+    // Extract slice
+    SmallVector<OpFoldResult> offsets(4, rewriter.getIndexAttr(0));
+    SmallVector<OpFoldResult> strides(4, rewriter.getIndexAttr(1));
+    SmallVector<OpFoldResult> sizes;
+    for (int i = 0; i < 4; i++) sizes.push_back(rewriter.getIndexAttr(outputShape[i]));
+    auto tOutput = rewriter.create<tensor::ExtractSliceOp>(loc, outputType, pOutput,
+      offsets, sizes, strides);
+
     Value result = convOp.getResult(0);
     result.replaceAllUsesWith(tOutput);
 

@@ -201,7 +201,7 @@ class ConvertConv2DNhwcHwcf final
                 loc, arith::CmpIPredicate::eq, sizeVal, inputTileSz));
       } 
     }
-    assert(equivalent.size() == 2);
+    assert(eqZeroCmpVals.size() == 2);
     Value ifCond = rewriter.create<arith::AndIOp>(loc, eqZeroCmpVals[0], eqZeroCmpVals[1]);
 
     // Load input tensor tile

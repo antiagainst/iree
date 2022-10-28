@@ -57,8 +57,8 @@ static void transpose(SmallVectorImpl<float> &inputTensor, SmallVectorImpl<float
 
 namespace {
 
-class ConvertWinogradBatchMatmul final
-    : public OpRewritePattern<IREE::Flow::WinogradBatchMatmulOp> {
+class ConvertWinogradOutputTransform final
+    : public OpRewritePattern<IREE::Flow::WinogradOutputTransformOp> {
  public:
   using OpRewritePattern::OpRewritePattern;
 
@@ -104,8 +104,8 @@ class ConvertWinogradBatchMatmul final
                                             Location loc,
                                             PatternRewriter &rewriter) {
     for (int i = 0; i < numWorkgroups; i++) {
-      ids[i] = rewriter.create<IREE::HAL::InterfaceWorkgroupIDOp>(loc, numWorkgroups - i - 1);
-      counts[i] = rewriter.create<IREE::HAL::InterfaceWorkgroupCountOp>(loc, numWorkgroups - i - 1);
+      ids.push_back(rewriter.create<IREE::HAL::InterfaceWorkgroupIDOp>(loc, numWorkgroups - i - 1));
+      counts.push_back(rewriter.create<IREE::HAL::InterfaceWorkgroupCountOp>(loc, numWorkgroups - i - 1));
     }
   }
 
@@ -183,7 +183,7 @@ class ConvertWinogradBatchMatmul final
   }
 
   static void updateLoopsAndState(scf::LoopNest &loopNest, 
-                                  ArrayRef<int64_t> inputShape,
+                                  ArrayRef<int64_t> outputShape,
                                   SmallVectorImpl<Value> &tileSizes,
                                   size_t numWorkgroups,
                                   TilingSchedule &schedule,
@@ -197,26 +197,45 @@ class ConvertWinogradBatchMatmul final
       size_t pos = schedule.tensorFormat["input"].find(info.dim);
       size_t opos = schedule.tensorFormat["output"].find(info.dim);
       auto iv = loops[i].getInductionVar();
+      if ((info.dim == 'h') || (info.dim == 'w')) {
+        rewriter.setInsertionPoint(&loops[i].getBody()->front());
+        AffineExpr dim0;
+        //auto t = rewriter.getAffineConstantExpr(info.tile);
+        //auto delta = rewriter.getAffineConstantExpr(inputShape[pos]);
+        bindDims(rewriter.getContext(), dim0);
+        //AffineMap minMap = AffineMap::get(1, 0, {-dim0 + delta, t}, rewriter.getContext());
+        inputState.sizes[pos] = rewriter.getIndexAttr(info.tile);
+        //inputState.sizes[pos] = rewriter.createOrFold<AffineMinOp>(loc, minMap, ValueRange{iv});
+        //cmpVals.push_back(rewriter.create<arith::CmpIOp>(
+        //      loc, arith::CmpIPredicate::eq, inputState.sizes[pos].dyn_cast<Value>(),
+        //      tileSizes[i]));
+        auto s = rewriter.getAffineConstantExpr(outputTileSize);
+        AffineMap outputMap = AffineMap::get(1, 0, {dim0 * s}, rewriter.getContext());
+        size_t offpos = info.dim == 'h' ? schedule.tensorFormat["output"].find('H') 
+                                        : schedule.tensorFormat["output"].find('W');
+        outputState.offsets[offpos] = rewriter.createOrFold<AffineApplyOp>(loc, outputMap, ValueRange{iv});
+        //auto delta = rewriter.getAffineConstantExpr(outputShape[offpos]);
+        //AffineMap minMap = AffineMap::get(1, 0, {-dim0 + delta, s}, rewriter.getContext());
+        //outputState.sizes[offpos] = rewriter.createOrFold<AffineMinOp>(loc, minMap, ValueRange{iv});
+        outputState.sizes[offpos] = rewriter.getIndexAttr(outputTileSize);
+      }
+      if (info.dim == 'c') {
+        // Assumes input and output have c dimension
+        inputState.sizes[pos] = rewriter.getIndexAttr(info.tile);
+        outputState.sizes[opos] = rewriter.getIndexAttr(info.tile);
+      }
       inputState.offsets[pos] = iv;
       inputState.currentSize[pos] = info.tile;
-      inputState.sizes[pos] = rewriter.getIndexAttr(info.tile);
-      if (opos != std::string::npos) {
-        outputState.offsets[opos] = iv;
-        outputState.sizes[opos] = rewriter.getIndexAttr(info.tile);
-        outputState.currentSize[opos] = info.tile;
-      }
     }
+
     rewriter.setInsertionPoint(&loops.back().getBody()->front());
   }
 
-  static IREE::Flow::DispatchTensorLoadOp getTensorLoadOp(IREE::Flow::WinogradBatchMatmulOp op, std::string type) {
-    if (type == "input")
-     return op.getInput().getDefiningOp<IREE::Flow::DispatchTensorLoadOp>();
-    if (type == "filter")
-     return op.getFilter().getDefiningOp<IREE::Flow::DispatchTensorLoadOp>();
+  static IREE::Flow::DispatchTensorLoadOp getTensorLoadOp(IREE::Flow::WinogradOutputTransformOp op) {
+     return op.getOutput().getDefiningOp<IREE::Flow::DispatchTensorLoadOp>();
   }
 
-  static IREE::Flow::DispatchTensorStoreOp getTensorStoreOp(IREE::Flow::WinogradBatchMatmulOp op) {
+  static IREE::Flow::DispatchTensorStoreOp getTensorStoreOp(IREE::Flow::WinogradOutputTransformOp op) {
     auto users = llvm::to_vector(op.getResult().getUsers());
     assert(!users.empty());
     return dyn_cast<IREE::Flow::DispatchTensorStoreOp>(users[0]);
@@ -239,23 +258,18 @@ class ConvertWinogradBatchMatmul final
     }
   }
 
-  static Value generateFlowLoads(IREE::Flow::WinogradBatchMatmulOp op,
+  static Value generateFlowLoads(IREE::Flow::WinogradOutputTransformOp op,
                                  std::string tensor,
                                  TensorState &state,
                                  Type elementType,
                                  Location loc,
                                  PatternRewriter &rewriter) {
     if (tensor == "input") {
-      auto tensorLoadOp = getTensorLoadOp(op, "input");
+      auto tensorLoadOp = getTensorLoadOp(op);
       auto tensorType = RankedTensorType::get(state.currentSize, elementType);
       return rewriter.create<IREE::Flow::DispatchTensorLoadOp>(loc, tensorType,
         tensorLoadOp.getSource(), ValueRange({}), state.offsets, state.sizes, state.strides).getResult();
-    } else if (tensor == "filter") {
-      auto tensorLoadOp = getTensorLoadOp(op, "filter");
-      auto tensorType = RankedTensorType::get(state.currentSize, elementType);
-      return rewriter.create<IREE::Flow::DispatchTensorLoadOp>(loc, tensorType,
-        tensorLoadOp.getSource(), ValueRange({}), state.offsets, state.sizes, state.strides).getResult();
-    }  else {
+    } else {
       auto tensorStoreOp = getTensorStoreOp(op);
       auto tensorType = RankedTensorType::get(state.currentSize, elementType);
       return rewriter.create<IREE::Flow::DispatchTensorLoadOp>(loc, tensorType,
@@ -263,7 +277,7 @@ class ConvertWinogradBatchMatmul final
     }
   }
 
-  static void generateFlowStores(IREE::Flow::WinogradBatchMatmulOp op,
+  static void generateFlowStores(IREE::Flow::WinogradOutputTransformOp op,
                                   Value result,
                                   TensorState &state,
                                   Location loc,
@@ -360,20 +374,20 @@ class ConvertWinogradBatchMatmul final
                                 Value output,
                                 Value scratch,
                                 Value zero,
-                                int Gcols,
-                                int Grows,
-                                Value GT,
-                                Value G,
+                                int ATrows,
+                                int ATcols,
+                                Value A,
+                                Value AT,
                                 Type elementType,
                                 Location loc,
                                 PatternRewriter &rewriter) {
     Value interim, accumulator;
-    auto matmulType = RankedTensorType::get({Grows, Gcols}, elementType);
+    auto matmulType = RankedTensorType::get({ATcols, ATrows}, elementType);
     accumulator = rewriter.create<linalg::FillOp>(loc, ValueRange{zero}, ValueRange{scratch}).result();
-    interim = rewriter.create<linalg::MatmulOp>(loc, matmulType, ValueRange{input, GT}, accumulator).getResult(0);
-    matmulType = RankedTensorType::get({Gcols, Gcols}, elementType);
+    interim = rewriter.create<linalg::MatmulOp>(loc, matmulType, ValueRange{input, A}, accumulator).getResult(0);
+    matmulType = RankedTensorType::get({ATrows, ATrows}, elementType);
     accumulator = rewriter.create<linalg::FillOp>(loc, ValueRange{zero}, ValueRange{output}).result();
-    return rewriter.create<linalg::MatmulOp>(loc, matmulType, ValueRange{G, interim}, accumulator).getResult(0);
+    return rewriter.create<linalg::MatmulOp>(loc, matmulType, ValueRange{AT, interim}, accumulator).getResult(0);
   }
 
   static Value insertSlice(Value transformed,
@@ -384,33 +398,16 @@ class ConvertWinogradBatchMatmul final
     return rewriter.create<tensor::InsertSliceOp>(loc, transformed, outputSlice,
         state.offsets, state.sizes, state.strides).getResult();
   }
-  
-  static Value createCollapseOrExpand(Value tensor, Location loc, PatternRewriter &rewriter,
-                                      SmallVectorImpl<int64_t> &outputShape,
-                                      SmallVectorImpl<ReassociationIndices> &reassociations,
-                                      bool collapse) {
-    auto tensorType = tensor.getType().cast<ShapedType>();
-    auto elementTy = tensorType.getElementType();
-    auto resultType = RankedTensorType::get(outputShape, elementTy);
-    if (collapse)
-      return rewriter.create<tensor::CollapseShapeOp>(loc, resultType, tensor, reassociations);
-    return rewriter.create<tensor::ExpandShapeOp>(loc, resultType, tensor, reassociations);
-  }
 
-  static LogicalResult applySchedule(IREE::Flow::WinogradBatchMatmulOp inputOp,
+  static LogicalResult applySchedule(IREE::Flow::WinogradOutputTransformOp inputOp,
                                      TilingSchedule &schedule, PatternRewriter &rewriter) {
 
     // Get input info
     auto loc = inputOp.getLoc();
-    auto input = inputOp.getInput();
+    auto input = inputOp.getOutput();
     auto inputType = input.getType().cast<ShapedType>();
     auto inputShape = inputType.getShape();
     auto elementType = inputType.getElementType();
-
-    // Get filter info
-    auto filter = inputOp.getFilter();
-    auto filterType = filter.getType().cast<ShapedType>();
-    auto filterShape = filterType.getShape();
 
     // Get output info
     auto output = inputOp.getResult();
@@ -418,9 +415,8 @@ class ConvertWinogradBatchMatmul final
     auto outputShape = outputType.getShape();
 
     // Initialize tensor state
-    TensorState inputState, outputState, filterState;
+    TensorState inputState, outputState;
     initState(inputState, inputShape, rewriter);
-    initState(filterState, filterShape, rewriter);
     initState(outputState, outputShape, rewriter);
 
     // Generate workgroup loop nest
@@ -428,27 +424,44 @@ class ConvertWinogradBatchMatmul final
     rewriter.setInsertionPointToStart(&funcOp.getBody().front());
     SmallVector<Value> lbs, ubs, steps, tiles;
     size_t numWorkgroups{0};
-    computeWorkgroupLoopParams(lbs, ubs, steps, numWorkgroups, "output", outputShape, schedule, loc, rewriter);
+    computeWorkgroupLoopParams(lbs, ubs, steps, numWorkgroups, "input", inputShape, schedule, loc, rewriter);
     // Create additional constants
     auto zero = rewriter.create<arith::ConstantOp>(loc, rewriter.getZeroAttr(elementType));
+    /*---------------------------------------------------------*/
+    // Output filter constants
+    SmallVector<float> AT{
+      1,1, 1, 1,  1,     1,      1,  0,
+      0,1,-1, 2, -2,  1./2,  -1./2,  0,
+      0,1, 1, 4,  4,  1./4,   1./4,  0,
+      0,1,-1, 8, -8,  1./8,  -1./8,  0,
+      0,1, 1,16, 16, 1./16,  1./16,  0,
+      0,1,-1,32,-32, 1./32, -1./32,  1
+    };
+    int ATrows = 6;
+    int ATcols = 8;
+    SmallVector<float> A;
+    transpose(AT, A, ATrows, ATcols);
+    auto scratch = rewriter.create<tensor::EmptyOp>(loc, SmallVector<int64_t>{ATcols, ATrows}, elementType);
+    auto ATValue = rewriter.create<arith::ConstantOp>(loc, DenseFPElementsAttr::get(
+      RankedTensorType::get({ATrows, ATcols}, rewriter.getF32Type()), AT));
+    auto AValue = rewriter.create<arith::ConstantOp>(loc, DenseFPElementsAttr::get(
+      RankedTensorType::get({ATcols, ATrows}, rewriter.getF32Type()), A));
+    /*---------------------------------------------------------*/
     rewriter.setInsertionPoint(inputOp);
     SmallVector<Value> ids, counts;
     generateWorkgroupIdsAndCounts(ids, counts, numWorkgroups, loc, rewriter);
 
-    #if 0
     auto workgroupLoopNest = scf::buildLoopNest(rewriter, loc, lbs, ubs, steps, ValueRange({}),
       [&](OpBuilder &nestedBuilder, Location loc, ValueRange outputIvs, ValueRange iterArgs) -> scf::ValueVector {
         return {};
     });
     updateWorkgroupLoops(workgroupLoopNest, numWorkgroups, ids, counts, schedule, loc, rewriter);
     updateStateAfterWorkgroupTiling(inputState, "input", schedule, workgroupLoopNest, rewriter);
-    updateStateAfterWorkgroupTiling(filterState, "filter", schedule, workgroupLoopNest, rewriter);
     updateStateAfterWorkgroupTiling(outputState, "output", schedule, workgroupLoopNest, rewriter);
 
     // Generate flow loads
     rewriter.setInsertionPoint(&workgroupLoopNest.loops.back().getBody()->front());
     Value inputSlice = generateFlowLoads(inputOp, "input", inputState, elementType, loc, rewriter);
-    Value weightSlice = generateFlowLoads(inputOp, "filter", filterState, elementType, loc, rewriter);
     Value outputSlice = generateFlowLoads(inputOp, "output", outputState, elementType, loc, rewriter);
 
     // Generate rest of loops
@@ -466,7 +479,7 @@ class ConvertWinogradBatchMatmul final
     // Generate flow stores
     generateFlowStores(inputOp, loopNest.getResults()[0], outputState, loc, rewriter);
 
-    updateLoopsAndState(loopNest, inputShape, tiles, numWorkgroups, schedule, inputState,
+    updateLoopsAndState(loopNest, outputShape, tiles, numWorkgroups, schedule, inputState,
                         outputState, loc, rewriter);
 
     // Extract slices
@@ -478,17 +491,22 @@ class ConvertWinogradBatchMatmul final
     }
     inputSlice = extractInputSlice(rankReducedSize, inputState, inputSlice, elementType, schedule, tiles, zero, loc, rewriter);
 
-    SmallVector<int64_t> rankReducedOutputSize;
-    for (auto size : outputState.currentSize) {
-      if (size == 1) continue;
-      rankReducedOutputSize.push_back(size);
-    }
+    SmallVector<int64_t> rankReducedOutputSize{outputTileSize, outputTileSize};
     Value iterArg = loopNest.loops.back().getRegionIterArg(0);
     outputSlice = extractOutputSlice(rankReducedOutputSize, outputState, iterArg, elementType, loc, rewriter);
 
     // Do compute
-    auto result = computeTransform(inputSlice, outputSlice, scratch, zero, rankReducedOutputSize[0],
-                                   rankReducedSize[0], GTValue, GValue, elementType, loc, rewriter);
+    auto result = computeTransform(inputSlice, outputSlice, scratch, zero, ATrows,
+                                   ATcols, AValue, ATValue, elementType, loc, rewriter);
+
+    // Extract slice from result
+    //SmallVector<OpFoldResult> strides{rankReducedOutputSize.size(), rewriter.getIndexAttr(1)};
+    //SmallVector<OpFoldResult> offsets{rankReducedOutputSize.size(), rewriter.getIndexAttr(0)};
+    //SmallVector<OpFoldResult> sizes{rankReducedOutputSize.size(), rewriter.getIndexAttr(1)};
+    //sizes[0] = outputState.sizes[1];
+    //sizes[1] = outputState.sizes[2];
+    //auto resultSlice = rewriter.create<tensor::ExtractSliceOp>(loc, 
+    //      RankedTensorType::get(rankReducedOutputSize, elementType), result, offsets, sizes, strides);
 
     // Insert slice and update yielded value
     auto updatedTensor = insertSlice(result, iterArg, outputState, loc, rewriter);
@@ -503,22 +521,21 @@ class ConvertWinogradBatchMatmul final
     rewriter.eraseOp(inputOp);
     rewriter.eraseOp(tensorLoadOp);
 
-    #endif
-    funcOp->getParentOfType<ModuleOp>().dump();
     return success();
   }
 
-  LogicalResult matchAndRewrite(IREE::Flow::WinogradBatchMatmulOp inputOp,
+  LogicalResult matchAndRewrite(IREE::Flow::WinogradOutputTransformOp inputOp,
                                 PatternRewriter &rewriter) const override {
 
     TilingSchedule schedule;
-    schedule.tensorFormat = {{"input", "ptnhwc"}, {"filter", "ptcf"}, {"output", "ptrf"}};
+    schedule.tensorFormat = {{"input", "ptnhwc"}, {"output", "nHWc"}};
     schedule.tilingInfo = {
       /* dim, lo, hi, step, tile, is_workgroup */
-      {'r', 0, -1, 1,   1,  1},
-      {'f', 0, -1, 32,   32,  1},
-      {'r', 0, 32,  1,  1,  0},
-      {'f', 0, 32,  1,  1,  0}
+      {'n', 0, -1,  1,  1,  1},
+      {'c', 0, -1, 32, 32,  1},
+      {'h', 0, -1,  1,  1,  0},
+      {'w', 0, -1,  1,  1,  0},
+      {'c', 0, 32,  1,  1,  0},
     };
     if (failed(applySchedule(inputOp, schedule, rewriter)))
       return failure();
@@ -531,9 +548,9 @@ class ConvertWinogradBatchMatmul final
 
 
 namespace {
-struct LowerWinogradBatchMatmulPass
-    : public LowerWinogradBatchMatmulBase<
-          LowerWinogradBatchMatmulPass> {
+struct LowerWinogradOutputTransformPass
+    : public LowerWinogradOutputTransformBase<
+          LowerWinogradOutputTransformPass> {
   void getDependentDialects(DialectRegistry &registry) const override {
     registry.insert<AffineDialect, IREE::Flow::FlowDialect,
                     IREE::HAL::HALDialect, linalg::LinalgDialect,
@@ -544,10 +561,10 @@ struct LowerWinogradBatchMatmulPass
 };
 }  // namespace
 
-void LowerWinogradBatchMatmulPass::runOnOperation() {
+void LowerWinogradOutputTransformPass::runOnOperation() {
   MLIRContext *context = &getContext();
   RewritePatternSet patterns(&getContext());
-  patterns.insert<ConvertWinogradBatchMatmul>(
+  patterns.insert<ConvertWinogradOutputTransform>(
       context);
   if (failed(applyPatternsAndFoldGreedily(getOperation(),
                                           std::move(patterns)))) {
@@ -556,8 +573,8 @@ void LowerWinogradBatchMatmulPass::runOnOperation() {
 }
 
 std::unique_ptr<OperationPass<func::FuncOp>>
-createLowerWinogradBatchMatmulPass() {
-  return std::make_unique<LowerWinogradBatchMatmulPass>();
+createLowerWinogradOutputTransformPass() {
+  return std::make_unique<LowerWinogradOutputTransformPass>();
 }
 
 }  // namespace iree_compiler

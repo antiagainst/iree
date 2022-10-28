@@ -130,10 +130,10 @@ def LowerWinogradFilterTransform :
   let constructor = "mlir::iree_compiler::createLowerWinogradFilterTransformPass()";
 }
 
-def LowerWinogradBatchMatmul :
-    Pass<"iree-codegen-lower-winograd-batch-matmul", "func::FuncOp"> {
-  let summary = "Lower winograd batch matmul to loops";
-  let constructor = "mlir::iree_compiler::createLowerWinogradBatchMatmulPass()";
+def LowerWinogradOutputTransform :
+    Pass<"iree-codegen-lower-winograd-output", "func::FuncOp"> {
+  let summary = "Lower winograd output transform to loops";
+  let constructor = "mlir::iree_compiler::createLowerWinogradOutputTransformPass()";
 }
 
 def WorkgroupSpecialization :

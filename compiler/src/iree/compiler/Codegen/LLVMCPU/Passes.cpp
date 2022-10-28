@@ -116,6 +116,12 @@ static void addBufferizePasses(OpPassManager &passManager) {
 
 static void addTileAndDistributePasses(
     OpPassManager &pm, bool useFuseTensorPadWithConsumerPass = true) {
+
+  // Convert Winograd ops
+  pm.nest<ModuleOp>().nest<func::FuncOp>().addPass(createLowerWinogradInputTransformPass());
+  pm.nest<ModuleOp>().nest<func::FuncOp>().addPass(createLowerWinogradFilterTransformPass());
+  pm.nest<ModuleOp>().nest<func::FuncOp>().addPass(createLowerWinogradOutputTransformPass());
+  
   pm.addPass(createTileAndDistributeToWorkgroupsPass());
   auto &nestedModulePM = pm.nest<ModuleOp>();
   if (useFuseTensorPadWithConsumerPass) {

@@ -104,8 +104,8 @@ class ConvertWinogradFilterTransform final
                                             Location loc,
                                             PatternRewriter &rewriter) {
     for (int i = 0; i < numWorkgroups; i++) {
-      ids[i] = rewriter.create<IREE::HAL::InterfaceWorkgroupIDOp>(loc, numWorkgroups - i - 1);
-      counts[i] = rewriter.create<IREE::HAL::InterfaceWorkgroupCountOp>(loc, numWorkgroups - i - 1);
+      ids.push_back(rewriter.create<IREE::HAL::InterfaceWorkgroupIDOp>(loc, numWorkgroups - i - 1));
+      counts.push_back(rewriter.create<IREE::HAL::InterfaceWorkgroupCountOp>(loc, numWorkgroups - i - 1));
     }
   }
 

@@ -1059,11 +1059,11 @@ LogicalResult initSPIRVLaunchConfig(ModuleOp module) {
     if (!exportOp) continue;
 
     SmallVector<Operation *> computeOps;
-    funcOp.dump();
     if (failed(getComputeOps(funcOp, computeOps))) {
       return funcOp.emitOpError("failed to get compute ops");
     }
 
+    funcOp.dump();
     if (computeOps.empty()) {
       return funcOp.emitOpError(
           "unhandled translation of function without compute ops");
