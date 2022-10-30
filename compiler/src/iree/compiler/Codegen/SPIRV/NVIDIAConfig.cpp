@@ -17,6 +17,7 @@
 #include "llvm/Support/MathExtras.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/SPIRV/IR/SPIRVAttributes.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
 
 #define DEBUG_TYPE "iree-spirv-nvidia-config"
@@ -48,7 +49,12 @@ static Optional<CooperativeMatrixSize> getCooperativeMatrixSize(
     Type resultType, int64_t m, int64_t n, int64_t k) {
   auto properties = resourceLimits.getCooperativeMatrixPropertiesNv()
                         .getAsRange<spirv::CooperativeMatrixPropertiesNVAttr>();
+  LLVM_DEBUG(llvm::dbgs() << "input (M, N, K) = (" << m << ", " << n << ", "
+                          << k << "\n";);
+  LLVM_DEBUG(llvm::dbgs() << "input (M, N, K) = (" << m << ", " << n << ", "
+                          << k << "\n";);
   for (auto property : properties) {
+  LLVM_DEBUG(llvm::dbgs() << "looking at matmul config " << property << "\n");
     if (property.getAType() == lhsType && property.getBType() == rhsType &&
         property.getCType() == resultType &&
         property.getResultType() == resultType &&
@@ -61,27 +67,41 @@ static Optional<CooperativeMatrixSize> getCooperativeMatrixSize(
         const uint64_t mTileCount = m / matmulM;
         const APInt nTileCountAPInt(/*numBits=*/64, nTileCount);
         const APInt mTileCountAPInt(/*numBits=*/64, mTileCount);
+        LLVM_DEBUG({
+          llvm::dbgs() << "input (M, N, K) = (" << m << ", " << n << ", " << k << "\n";
+          llvm::dbgs() << "mat (M, N, K) = (" << matmulM << ", " << matmulK << ", " << matmulK << "\n";
+        });
 
         int64_t nCount = 0, mCount = 0;
         uint64_t subgroupCount = numSubgroupsPerWorkgroup;
         uint64_t squareRoot = 1u << (llvm::Log2_64(subgroupCount) / 2);
 
+        LLVM_DEBUG({
+          llvm::dbgs() << "subgroupCount = " << subgroupCount << "\n";
+          llvm::dbgs() << "squareRoot = " << squareRoot << "\n";
+        });
+
         // See if the square root of subgroupCount can divide mTileCount. If so
         // it means we can distribute to both dimensions evenly. Otherwise, try
         // to distribute to N and then M.
         if (mTileCount > squareRoot && mTileCount % squareRoot == 0) {
+          LLVM_DEBUG(llvm::dbgs() << "square case\n");
           mCount = squareRoot;
           APInt nGCD = GreatestCommonDivisor(
               nTileCountAPInt, APInt(64, subgroupCount / squareRoot));
+          LLVM_DEBUG(llvm::dbgs() << "nGCD: " << nGCD << "\n");
           nCount = nGCD.getSExtValue();
         } else {
+          LLVM_DEBUG(llvm::dbgs() << "non-square case\n");
           APInt nGCD =
               GreatestCommonDivisor(nTileCountAPInt, APInt(64, subgroupCount));
           nCount = nGCD.getSExtValue();
+          LLVM_DEBUG(llvm::dbgs() << "nGCD: " << nGCD << "\n");
 
           subgroupCount /= nCount;
           APInt mGCD =
               GreatestCommonDivisor(mTileCountAPInt, APInt(64, subgroupCount));
+          LLVM_DEBUG(llvm::dbgs() << "mGCD: " << mGCD << "\n");
           mCount = mGCD.getSExtValue();
         }
 
@@ -97,9 +117,11 @@ static Optional<CooperativeMatrixSize> getCooperativeMatrixSize(
 
 static LogicalResult setCooperativeMatrixConfig(
     const spirv::TargetEnv &targetEnv, linalg::MatmulOp op) {
+  LLVM_DEBUG(llvm::dbgs() << "in NVIDIA tensorcore config\n");
   // This configuration is only for cooperative matrix.
   if (!targetEnv.allows(spirv::Capability::CooperativeMatrixNV) ||
       !targetEnv.allows(spirv::Extension::SPV_NV_cooperative_matrix)) {
+    LLVM_DEBUG(llvm::dbgs() << "missing ext/cap\n");
     return success();
   }
 
@@ -109,8 +131,14 @@ static LogicalResult setCooperativeMatrixConfig(
 
   ArrayRef<int64_t> lhsShape = lhs.getType().cast<ShapedType>().getShape();
   ArrayRef<int64_t> rhsShape = rhs.getType().cast<ShapedType>().getShape();
-  if (llvm::any_of(lhsShape, ShapedType::isDynamic)) return success();
-  if (llvm::any_of(rhsShape, ShapedType::isDynamic)) return success();
+  if (llvm::any_of(lhsShape, ShapedType::isDynamic)) {
+    LLVM_DEBUG(llvm::dbgs() << "dynamic LHS\n");
+    return success();
+  }
+  if (llvm::any_of(rhsShape, ShapedType::isDynamic)) {
+    LLVM_DEBUG(llvm::dbgs() << "dynamic RHS\n");
+    return success();
+  }
 
   // TODO: Cooperative matrix support is fairly restricted. We can only have
   // a curated list of fused element wise ops as defined in the extension
@@ -125,7 +153,10 @@ static LogicalResult setCooperativeMatrixConfig(
   Optional<CooperativeMatrixSize> coopMatSize = getCooperativeMatrixSize(
       resourceLimits, getElementType(lhs), getElementType(rhs),
       getElementType(init), lhsShape[0], rhsShape[1], lhsShape[1]);
-  if (!coopMatSize) return success();
+  if (!coopMatSize) {
+    LLVM_DEBUG(llvm::dbgs() << "cannot find suitable size\n");
+    return success();
+  }
 
   auto pipeline = IREE::Codegen::DispatchLoweringPassPipeline::
       SPIRVCooperativeMatrixVectorize;
@@ -201,6 +232,7 @@ LogicalResult setNVIDIACodeGenConfig(const spirv::TargetEnv &targetEnv,
 
   // First try to see if we can use tensor cores.
   if (auto matmulOp = dyn_cast<linalg::MatmulOp>(rootOp)) {
+    LLVM_DEBUG(llvm::dbgs() << "in NVIDIA matmul config\n");
     if (failed(setCooperativeMatrixConfig(targetEnv, matmulOp)))
       return failure();
     if (getLoweringConfig(rootOp)) return success();

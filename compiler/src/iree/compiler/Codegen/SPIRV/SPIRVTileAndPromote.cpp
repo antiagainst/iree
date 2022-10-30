@@ -17,14 +17,17 @@
 #include "iree/compiler/Codegen/SPIRV/Utils.h"
 #include "iree/compiler/Codegen/Utils/GPUUtils.h"
 #include "iree/compiler/Codegen/Utils/MarkerUtils.h"
+#include "iree/compiler/Dialect/HAL/IR/HALOps.h"
 #include "llvm/Support/Debug.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Transforms/Transforms.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/Transforms/Transforms.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Matchers.h"
+#include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/Visitors.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
@@ -91,6 +94,49 @@ static void populateTilingToInvocationPatterns(
 static const char promoteLHSMarker[] = "promote_lhs";
 static const char promoteRHSMarker[] = "promote_rhs";
 static const char promoteBothMarker[] = "promote_lhs_and_rhs";
+
+template <typename OpTy>
+struct CreateSubviewForPromotion : public OpRewritePattern<OpTy> {
+  using OpRewritePattern<OpTy>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(OpTy op,
+                                PatternRewriter &rewriter) const override {
+    auto markerName = IREE::LinalgExt::LinalgTransforms::kLinalgTransformMarker;
+    auto marker = op->template getAttrOfType<StringAttr>(markerName);
+    if (!marker || !marker.getValue().startswith("promote_")) return failure();
+
+    auto linalgOp = cast<linalg::LinalgOp>(*op);
+    Value lhs = linalgOp.getDpsInputOperand(0)->get();
+    Value rhs = linalgOp.getDpsInputOperand(1)->get();
+    auto lhsSubview = createSubviewFromSubspan(lhs, rewriter);
+    auto rhsSubview = createSubviewFromSubspan(rhs, rewriter);
+    if (!lhsSubview && !rhsSubview) return failure();
+    if (lhsSubview) lhs = lhsSubview;
+    if (rhsSubview) rhs = rhsSubview;
+
+    auto newOp = rewriter.create<OpTy>(
+        op.getLoc(), TypeRange{op.getType(0)}, ValueRange{lhs, rhs},
+        ValueRange{linalgOp.getDpsInitOperand(0)->get()});
+    newOp->setAttr(markerName, marker);
+    rewriter.eraseOp(op);
+    return success();
+  }
+
+  memref::SubViewOp createSubviewFromSubspan(Value subview,
+                                         PatternRewriter &rewriter) const {
+    auto subspan =
+        subview.getDefiningOp<IREE::HAL::InterfaceBindingSubspanOp>();
+    if (!subspan) return {};
+
+    auto memrefType = subspan.getType().dyn_cast<MemRefType>();
+    if (!memrefType || !memrefType.hasStaticShape()) return {};
+
+    SmallVector<int64_t> offsets(memrefType.getRank(), 0);
+    SmallVector<int64_t> strides(memrefType.getRank(), 1);
+    return rewriter.create<memref::SubViewOp>(
+        subview.getLoc(), subspan, offsets, memrefType.getShape(), strides);
+  }
+};
 
 LogicalResult copyToWorkgroupMemory(OpBuilder &builder, Value src, Value dst) {
   Operation *copyOp = builder.create<memref::CopyOp>(src.getLoc(), src, dst);
@@ -231,6 +277,21 @@ void SPIRVTileAndPromotePass::runOnOperation() {
 
   // Only promote to workgroup size if there are multiple warps.
   if (totalThreads > subgroupSize) {
+    RewritePatternSet preparePatterns(&getContext());
+    preparePatterns.add<CreateSubviewForPromotion<linalg::BatchMatmulOp>,
+                        CreateSubviewForPromotion<linalg::MatmulOp>>(
+        &getContext());
+    if (failed(
+            applyPatternsAndFoldGreedily(funcOp, std::move(preparePatterns)))) {
+      return signalPassFailure();
+    }
+
+    LLVM_DEBUG({
+      llvm::dbgs() << "--- After creating subview ---\n";
+      funcOp.print(llvm::dbgs(), OpPrintingFlags().useLocalScope());
+      llvm::dbgs() << "\n\n";
+    });
+
     RewritePatternSet promotionPatterns(&getContext());
     auto replaceMarker = StringAttr::get(context, getWorkgroupMemoryMarker());
     populatePromotionPatterns(promotionPatterns, replaceMarker);
