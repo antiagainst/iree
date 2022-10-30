@@ -313,33 +313,38 @@ void addSPIRVMatmulPromoteVectorizePassPipeline(OpPassManager &pm) {
 }
 
 void addSPIRVWinogradVectorizePassPipeline(OpPassManager &pm) {
-  // Tile and distribute to workgroups is already done,
-  // so we just bufferize and vectorize
+  addTileAndDistributeToWorkgroupsPasses(
+      pm, /*useFuseTensorPadWithConsumerPass=*/true);
 
   auto &nestedModulePM = pm.nest<ModuleOp>();
-  addBufferizePasses(nestedModulePM, gpuAllocateWorkgroupMemoryFn);
-
-  // Tile and distribute to GPU invocations.
-  nestedModulePM.addNestedPass<func::FuncOp>(createSPIRVTileAndPromotePass());
-  nestedModulePM.addNestedPass<func::FuncOp>(createMemrefCopyToLinalgPass());
   nestedModulePM.addNestedPass<func::FuncOp>(
-      createGPUDistributeSharedMemoryCopy());
+      createFoldAffineMinInDistributedLoopsPass());
+  nestedModulePM.addPass(memref::createResolveShapedTypeResultDimsPass());
+
   nestedModulePM.addPass(createCanonicalizerPass());
   nestedModulePM.addPass(createCSEPass());
 
+  // Tile to GPU invocations and vectorize.
   nestedModulePM.addNestedPass<func::FuncOp>(
-      createRemoveSingleIterationLoopPass());
-
+      createSPIRVCreateFastSlowPathPass());
+  //nestedModulePM.addNestedPass<func::FuncOp>(createSPIRVTilePass());
+  nestedModulePM.addPass(createCanonicalizerPass());
+  nestedModulePM.addPass(createCSEPass());
   nestedModulePM.addNestedPass<func::FuncOp>(createSPIRVVectorizePass());
   nestedModulePM.addNestedPass<func::FuncOp>(createForOpCanonicalizationPass());
   nestedModulePM.addPass(createCanonicalizerPass());
   nestedModulePM.addPass(createCSEPass());
+
+  // Bufferize and distribute.
+  addSPIRVBufferizePasses(nestedModulePM, gpuAllocateFunctionMemoryFn);
+
+  // Generate loop nests for all remaining ops and remove trivial loops.
+  addLoopMaterializationPasses(nestedModulePM);
+
+  // Perform various vector-level cross-op optimizations like load-store
+  // forwarding, shape casting and casting op cancelling.
   nestedModulePM.addNestedPass<func::FuncOp>(
       createOptimizeVectorTransferPass());
-
-  nestedModulePM.addNestedPass<func::FuncOp>(createGPUPipeliningPass());
-
-  addLoopMaterializationPasses(nestedModulePM);
 }
 
 void addSPIRVBaseDistributePassPipeline(OpPassManager &pm) {

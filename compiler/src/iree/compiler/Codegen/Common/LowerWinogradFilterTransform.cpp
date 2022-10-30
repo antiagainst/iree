@@ -349,6 +349,7 @@ class ConvertWinogradFilterTransform final
   }
 
   static Value computeTransform(Value input,
+		  		Value paddedInput,
                                 Value output,
                                 Value scratch,
                                 Value zero,
@@ -359,8 +360,15 @@ class ConvertWinogradFilterTransform final
                                 Type elementType,
                                 Location loc,
                                 PatternRewriter &rewriter) {
+    // First insert kernel into padded kernel
+    SmallVector<OpFoldResult> offsets(2, rewriter.getIndexAttr(0));
+    SmallVector<OpFoldResult> strides(2, rewriter.getIndexAttr(1));
+    SmallVector<OpFoldResult> sizes(2, rewriter.getIndexAttr(Grows));
+    input = rewriter.create<tensor::InsertSliceOp>(loc, input, paddedInput,
+        offsets, sizes, strides).getResult();
+	
     Value interim, accumulator;
-    auto matmulType = RankedTensorType::get({Grows, Gcols}, elementType);
+    auto matmulType = RankedTensorType::get({Grows + 1, Gcols}, elementType);
     accumulator = rewriter.create<linalg::FillOp>(loc, ValueRange{zero}, ValueRange{scratch}).result();
     interim = rewriter.create<linalg::MatmulOp>(loc, matmulType, ValueRange{input, GT}, accumulator).getResult(0);
     matmulType = RankedTensorType::get({Gcols, Gcols}, elementType);
@@ -408,20 +416,22 @@ class ConvertWinogradFilterTransform final
     /*---------------------------------------------------------*/
     // Input filter constants
     SmallVector<float> G{
-      1, 0, 0,
-      -2./9., -2./9., -2./9.,
-      -2./9., 2./9., -2./9.,
-      1./90, 1./45, 2./45,
-      1./90, -1./45, 2./45,
-      32./45, 16./45, 8./45,
-      32./45, -16./45, 8./45,
-      0, 0, 1
+      1, 0, 0, 0,
+      -2./9., -2./9., -2./9., 0,
+      -2./9., 2./9., -2./9., 0,
+      1./90, 1./45, 2./45, 0,
+      1./90, -1./45, 2./45, 0,
+      32./45, 16./45, 8./45, 0,
+      32./45, -16./45, 8./45, 0,
+      0, 0, 1, 0
     };
     int Grows = 8;
-    int Gcols = 3;
+    int Gcols = 4;
     SmallVector<float> GT;
     transpose(G, GT, Grows, Gcols);
     auto scratch = rewriter.create<tensor::EmptyOp>(loc, SmallVector<int64_t>{Gcols, Grows}, elementType);
+    auto paddedKernel = rewriter.create<tensor::EmptyOp>(loc, SmallVector<int64_t>{Gcols, Gcols}, elementType);
+    auto zeroPadKernel = rewriter.create<linalg::FillOp>(loc, ValueRange{zero}, ValueRange{paddedKernel}).result();
     auto GValue = rewriter.create<arith::ConstantOp>(loc, DenseFPElementsAttr::get(
       RankedTensorType::get({Grows, Gcols}, rewriter.getF32Type()), G));
     auto GTValue = rewriter.create<arith::ConstantOp>(loc, DenseFPElementsAttr::get(
@@ -456,6 +466,12 @@ class ConvertWinogradFilterTransform final
         return {iterArgs[0]};
     });
 
+    // Add spirv attributes to loops
+    const char *attrName = "iree.spirv.distribute_dim";
+    for (int i = loopNest.loops.size() - 1, dim = 0; i >= 0; --i) {
+      loopNest.loops[i]->setAttr(attrName, rewriter.getIndexAttr(dim++));
+    }
+
     // Generate flow stores
     generateFlowStores(inputOp, loopNest.getResults()[0], outputState, loc, rewriter);
 
@@ -480,7 +496,7 @@ class ConvertWinogradFilterTransform final
     outputSlice = extractOutputSlice(rankReducedOutputSize, outputState, iterArg, elementType, loc, rewriter);
 
     // Do compute
-    auto result = computeTransform(inputSlice, outputSlice, scratch, zero, rankReducedOutputSize[0],
+    auto result = computeTransform(inputSlice, zeroPadKernel, outputSlice, scratch, zero, rankReducedOutputSize[0],
                                    rankReducedSize[0], GTValue, GValue, elementType, loc, rewriter);
 
     // Insert slice and update yielded value
