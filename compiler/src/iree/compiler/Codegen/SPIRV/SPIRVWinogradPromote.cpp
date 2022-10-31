@@ -184,7 +184,6 @@ void SPIRVWinogradPromotePass::runOnOperation() {
     }
   }
 
-  funcOp->getParentOfType<ModuleOp>().dump();
 #if 0
   {  // Tile reduction dimensions.
     RewritePatternSet tilingPatterns(context);
