@@ -489,6 +489,13 @@ def SPIRVTileAndPromote : Pass<"iree-spirv-tile-and-promote", "func::FuncOp"> {
     "mlir::iree_compiler::createSPIRVTileAndPromotePass()";
 }
 
+def SPIRVWinogradPromote : Pass<"iree-spirv-winograd-promote", "func::FuncOp"> {
+  let summary = "Promote tiled Linalg ops with buffer semantics to use "
+                "workgroup memory and then tile to invocations";
+  let constructor =
+    "mlir::iree_compiler::createSPIRVWinogradPromotePass()";
+}
+
 def SPIRVVectorize : Pass<"iree-spirv-vectorize", "func::FuncOp"> {
   let summary = "Vectorize Linalg ops with buffer semantics";
   let constructor = "mlir::iree_compiler::createSPIRVVectorizePass()";

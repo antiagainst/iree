@@ -51,6 +51,70 @@ class ConvertConv2DNhwcHwcf final
     return rewriter.create<tensor::ExpandShapeOp>(loc, resultType, tensor, reassociations);
   }
 
+  static Value createTransposeOp(Value filter,
+                                 Type elementType,
+                                 Location loc,
+                                 PatternRewriter &rewriter) {
+    auto filterShape = filter.getType().cast<ShapedType>().getShape();
+    int64_t iterationSpaceDim = 4;
+    SmallVector<AffineExpr> idExprs;
+    for (auto i = 0; i < iterationSpaceDim; i++) {
+      idExprs.push_back(getAffineDimExpr(i, rewriter.getContext()));
+    }
+    SmallVector<AffineExpr> inputExprs = {idExprs[2], idExprs[3], idExprs[0], idExprs[1]};
+    SmallVector<int64_t> shape = {filterShape[2], filterShape[3], filterShape[0], filterShape[1]};
+    SmallVector<AffineMap> indexingMaps = {
+      AffineMap::get(iterationSpaceDim, 0, inputExprs, rewriter.getContext()),
+      AffineMap::get(iterationSpaceDim, 0, idExprs, rewriter.getContext()),
+    };
+    SmallVector<StringRef> iteratorTypes(iterationSpaceDim, getParallelIteratorTypeName());
+    Value emptyTensor = rewriter.create<tensor::EmptyOp>(loc, shape, elementType);
+    auto outputType = RankedTensorType::get(shape, elementType);
+    auto transposeOp = rewriter.create<linalg::GenericOp>(loc, outputType,
+      ValueRange({filter}), emptyTensor,
+      indexingMaps, iteratorTypes, 
+      [&](OpBuilder &b, Location loc, ValueRange args) {
+        b.create<linalg::YieldOp>(loc, args[0]);
+      });
+    return transposeOp.getResult(0);
+  }
+
+  static Value createBroadcastOp(Value GValue,
+                                 int ic, int oc, int Grows, int Gcols,
+                                 Type elementType,
+                                 Location loc,
+                                 PatternRewriter &rewriter, 
+                                 bool transpose) {
+    int64_t iterationSpaceDim = 4;
+    SmallVector<AffineExpr> idExprs;
+    for (auto i = 0; i < iterationSpaceDim; i++) {
+      idExprs.push_back(getAffineDimExpr(i, rewriter.getContext()));
+    }
+    SmallVector<AffineExpr> inputExprs;
+    SmallVector<int64_t> shape;
+    if (transpose) {
+      shape = {ic, oc, Gcols, Grows};
+      inputExprs = {idExprs[3], idExprs[2]};
+    } else {
+      shape = {ic, oc, Grows, Gcols};
+      inputExprs = {idExprs[2], idExprs[3]};
+    }
+    SmallVector<AffineMap> indexingMaps = {
+      AffineMap::get(iterationSpaceDim, 0, inputExprs, rewriter.getContext()),
+      AffineMap::get(iterationSpaceDim, 0, idExprs, rewriter.getContext()),
+    };
+    SmallVector<StringRef> iteratorTypes(iterationSpaceDim, getParallelIteratorTypeName());
+    Value emptyTensor = rewriter.create<tensor::EmptyOp>(loc, shape, elementType);
+    auto outputType = RankedTensorType::get(shape, elementType);
+    auto broadcastOp = rewriter.create<linalg::GenericOp>(loc, outputType,
+      ValueRange({GValue}), emptyTensor,
+      indexingMaps, iteratorTypes, 
+      [&](OpBuilder &b, Location loc, ValueRange args) {
+        b.create<linalg::YieldOp>(loc, args[0]);
+      });
+    return broadcastOp.getResult(0);
+  }
+
   LogicalResult matchAndRewrite(linalg::Conv2DNhwcHwcfOp convOp,
                                 PatternRewriter &rewriter) const override {
 
@@ -110,27 +174,86 @@ class ConvertConv2DNhwcHwcf final
 
     Value kernel = convOp.getInputs()[1];
     const int oc = kernelShape[3];
+  #if 1
+    // Original filter transform here
     auto transformedKernelType = RankedTensorType::get({inputTileSize, inputTileSize, oc, ic}, elementType);
     auto tKernel = rewriter.create<IREE::Flow::WinogradFilterTransformOp>(loc, transformedKernelType, kernel);
 
-    // Add collapse shape
-    SmallVector<int64_t> collapsedShape{inputTileSize * inputTileSize, in * ihm * iwm, ic};
-    SmallVector<ReassociationIndices> reassociations = {{0, 1}, {2, 3, 4}, {5}};
-    auto cInput = createCollapseOrExpand(tInput, loc, rewriter, collapsedShape, reassociations, true);
+#else
+    /**** Alternative to filter transform ***/
+    // Create generic to broadcast the G and GT values
+    SmallVector<float> G{
+      1, 0, 0,
+      -2./9., -2./9., -2./9.,
+      -2./9., 2./9., -2./9.,
+      1./90, 1./45, 2./45,
+      1./90, -1./45, 2./45,
+      32./45, 16./45, 8./45,
+      32./45, -16./45, 8./45,
+      0, 0, 1
+    };
+    int Grows = 8;
+    int Gcols = 3;
+    auto GValue = rewriter.create<arith::ConstantOp>(loc, DenseFPElementsAttr::get(
+      RankedTensorType::get({Grows, Gcols}, rewriter.getF32Type()), G));
+    SmallVector<int64_t> GbroadcastShape{ic, oc, Grows, Gcols};
+    auto Gbroadcast = createBroadcastOp(GValue, ic, oc, Grows, Gcols, elementType, loc, rewriter, false); 
+    auto GTbroadcast = createBroadcastOp(GValue, ic, oc, Grows, Gcols, elementType, loc, rewriter, true); 
+    auto transposedKernel = createTransposeOp(kernel, elementType, loc, rewriter); 
 
-    SmallVector<int64_t> collapsedFilterShape{inputTileSize * inputTileSize, oc, ic};
-    SmallVector<ReassociationIndices> filterReassociations = {{0, 1}, {2}, {3}};
-    auto cKernel = createCollapseOrExpand(tKernel, loc, rewriter, collapsedFilterShape, filterReassociations, true);
+    SmallVector<int64_t> collapsedShape{ic * oc, Grows, Gcols};
+    SmallVector<ReassociationIndices> reassociations = {{0, 1}, {2}, {3}};
+    auto gInput = createCollapseOrExpand(Gbroadcast, loc, rewriter, collapsedShape, reassociations, true);
 
-    SmallVector<int64_t> bmmShape{inputTileSize * inputTileSize, in * ihm * iwm, oc};
+    collapsedShape = {ic * oc, Gcols, Grows};
+    reassociations = {{0, 1}, {2}, {3}};
+    auto gtInput = createCollapseOrExpand(GTbroadcast, loc, rewriter, collapsedShape, reassociations, true);
+
+    collapsedShape = {ic * oc, Gcols, Gcols};
+    reassociations = {{0, 1}, {2}, {3}};
+    auto kInput = createCollapseOrExpand(transposedKernel, loc, rewriter, collapsedShape, reassociations, true);
+
+    SmallVector<int64_t> bmmShape{ic * oc, Gcols, Grows};
     auto bmmOutputType = RankedTensorType::get(bmmShape, elementType);
     Value emptyTensor = rewriter.create<tensor::EmptyOp>(loc, bmmShape, elementType);
     Value accumulator = rewriter.create<linalg::FillOp>(loc, ValueRange{zero}, ValueRange{emptyTensor}).result();
     auto bmmResult = rewriter.create<linalg::BatchMatmulOp>(loc, bmmOutputType,
+      ValueRange({kInput, gtInput}), ValueRange({accumulator})).getResult(0);
+
+    bmmShape = {ic * oc, Grows, Grows};
+    bmmOutputType = RankedTensorType::get(bmmShape, elementType);
+    emptyTensor = rewriter.create<tensor::EmptyOp>(loc, bmmShape, elementType);
+    accumulator = rewriter.create<linalg::FillOp>(loc, ValueRange{zero}, ValueRange{emptyTensor}).result();
+    bmmResult = rewriter.create<linalg::BatchMatmulOp>(loc, bmmOutputType,
+      ValueRange({gInput, bmmResult}), ValueRange({accumulator})).getResult(0);
+
+    // Create expand shapes
+    SmallVector<int64_t> expandedShape = {ic, oc, Grows, Grows};
+    SmallVector<ReassociationIndices> resultReassociations = {{0, 1}, {2}, {3}};
+    auto expanded = createCollapseOrExpand(bmmResult, loc, rewriter, expandedShape, resultReassociations, false);
+
+    // Transpose expanded shape
+    auto tKernel = createTransposeOp(expanded, elementType, loc, rewriter); 
+#endif
+
+    // Add collapse shape
+    SmallVector<int64_t> collapsedShape = {inputTileSize * inputTileSize, in * ihm * iwm, ic};
+    SmallVector<ReassociationIndices> reassociations = {{0, 1}, {2, 3, 4}, {5}};
+    auto cInput = createCollapseOrExpand(tInput, loc, rewriter, collapsedShape, reassociations, true);
+
+    SmallVector<int64_t> collapsedFilterShape = {inputTileSize * inputTileSize, oc, ic};
+    SmallVector<ReassociationIndices> filterReassociations = {{0, 1}, {2}, {3}};
+    auto cKernel = createCollapseOrExpand(tKernel, loc, rewriter, collapsedFilterShape, filterReassociations, true);
+
+    SmallVector<int64_t> bmmShape = {inputTileSize * inputTileSize, in * ihm * iwm, oc};
+    auto bmmOutputType = RankedTensorType::get(bmmShape, elementType);
+    auto emptyTensor = rewriter.create<tensor::EmptyOp>(loc, bmmShape, elementType);
+    auto accumulator = rewriter.create<linalg::FillOp>(loc, ValueRange{zero}, ValueRange{emptyTensor}).result();
+    auto bmmResult = rewriter.create<linalg::BatchMatmulOp>(loc, bmmOutputType,
       ValueRange({cInput, cKernel}), ValueRange({accumulator})).getResult(0);
 
     // Add expand shape
-    SmallVector<int64_t> expandedShape{inputTileSize, inputTileSize, in, ihm, iwm, oc};
+    SmallVector<int64_t> expandedShape = {inputTileSize, inputTileSize, in, ihm, iwm, oc};
     SmallVector<ReassociationIndices> resultReassociations = {{0, 1}, {2, 3, 4}, {5}};
     auto eResult = createCollapseOrExpand(bmmResult, loc, rewriter, expandedShape, resultReassociations, false);
 

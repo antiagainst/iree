@@ -32,6 +32,7 @@ iree_cc_library(
     "SPIRVTile.cpp"
     "SPIRVTileAndDistribute.cpp"
     "SPIRVTileAndPromote.cpp"
+    "SPIRVWinogradPromote.cpp"
     "SPIRVTileAndVectorizeToCooperativeOps.cpp"
     "SPIRVVectorToCooperativeOps.cpp"
     "SPIRVVectorize.cpp"

@@ -1002,6 +1002,7 @@ static LogicalResult setSPIRVOpConfig(const spirv::TargetEnv &targetEnv,
         if (getLoweringConfig(op)) return result;
 
         // If unsuccessful, try to tile and distribute.
+        printf("setting default config!\n");
         return setDefaultOpConfig(limits, op);
       })
       .Case<linalg::Conv2DNchwFchwOp, linalg::Conv2DNhwcHwcfOp,
@@ -1076,7 +1077,7 @@ LogicalResult initSPIRVLaunchConfig(ModuleOp module) {
         StringRef winogradType = exportOp->getAttr("type").dyn_cast<StringAttr>().getValue();
         if (winogradType == "winograd_input") {
           printf("got input!\n");
-        }
+        } 
         if (winogradType == "winograd_filter") {
           printf("got filter!\n");
           auto funcOp = computeOp->getParentOfType<func::FuncOp>();
@@ -1092,10 +1093,10 @@ LogicalResult initSPIRVLaunchConfig(ModuleOp module) {
             return setOpConfigAndEntryPointFnTranslation(funcOp, linalgOp, tileSizes,
                                                          pipeline, workgroupSize);
           }
-        }
+        } 
         if (winogradType == "winograd_output") {
           printf("got output!\n");
-        }
+        } 
       }
 
       if (failed(setSPIRVOpConfig(targetEnv, funcOp, computeOp)))

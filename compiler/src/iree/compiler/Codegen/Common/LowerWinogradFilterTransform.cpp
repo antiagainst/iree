@@ -349,7 +349,7 @@ class ConvertWinogradFilterTransform final
   }
 
   static Value computeTransform(Value input,
-		  		Value paddedInput,
+                                Value paddedInput,
                                 Value output,
                                 Value scratch,
                                 Value zero,
@@ -366,7 +366,7 @@ class ConvertWinogradFilterTransform final
     SmallVector<OpFoldResult> sizes(2, rewriter.getIndexAttr(Grows));
     input = rewriter.create<tensor::InsertSliceOp>(loc, input, paddedInput,
         offsets, sizes, strides).getResult();
-	
+
     Value interim, accumulator;
     auto matmulType = RankedTensorType::get({Grows + 1, Gcols}, elementType);
     accumulator = rewriter.create<linalg::FillOp>(loc, ValueRange{zero}, ValueRange{scratch}).result();
