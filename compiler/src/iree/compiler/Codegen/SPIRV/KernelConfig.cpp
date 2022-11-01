@@ -1075,28 +1075,29 @@ LogicalResult initSPIRVLaunchConfig(ModuleOp module) {
     for (Operation *computeOp : computeOps) {
       if (exportOp->hasAttr("type")) {
         StringRef winogradType = exportOp->getAttr("type").dyn_cast<StringAttr>().getValue();
+        auto funcOp = computeOp->getParentOfType<func::FuncOp>();
+        TileSizesListType tileSizes;
+        SmallVector<int64_t> workgroupTileSizes{1, 1, 1};
+        SmallVector<int64_t> threadTileSizes{1, 1, 1};
+        tileSizes.push_back(workgroupTileSizes);
+        tileSizes.push_back(threadTileSizes);
+        SmallVector<int64_t, 3> workgroupSize{32, 1, 1};  // (X, Y, Z)
         if (winogradType == "winograd_input") {
           printf("got input!\n");
         } 
         if (winogradType == "winograd_filter") {
           printf("got filter!\n");
-          auto funcOp = computeOp->getParentOfType<func::FuncOp>();
-          TileSizesListType tileSizes;
-          SmallVector<int64_t> workgroupTileSizes{1, 1, 1};
-          SmallVector<int64_t> threadTileSizes{1, 1, 1};
-          tileSizes.push_back(workgroupTileSizes);
-          tileSizes.push_back(threadTileSizes);
-          SmallVector<int64_t, 3> workgroupSize{32, 32, 1};  // (X, Y, Z)
-          if (auto linalgOp = dyn_cast<linalg::MatmulOp>(computeOp)) {
-            // 3 x 3 x cin x cout -> k x k x cin x cout
-            auto pipeline = CodeGenPipeline::SPIRVWinogradVectorize;
-            return setOpConfigAndEntryPointFnTranslation(funcOp, linalgOp, tileSizes,
-                                                         pipeline, workgroupSize);
-          }
         } 
         if (winogradType == "winograd_output") {
           printf("got output!\n");
         } 
+        auto pipeline = CodeGenPipeline::SPIRVBaseVectorize;
+        if (failed(setOpConfigAndEntryPointFnTranslation(funcOp, computeOp, tileSizes,
+                                                         pipeline, workgroupSize))) {
+          return failure();
+        }
+        rootOperation = computeOp;
+        continue;
       }
 
       if (failed(setSPIRVOpConfig(targetEnv, funcOp, computeOp)))

@@ -313,7 +313,6 @@ void addSPIRVMatmulPromoteVectorizePassPipeline(OpPassManager &pm) {
 }
 
 void addSPIRVWinogradVectorizePassPipeline(OpPassManager &pm) {
-#if 0
   addTileAndDistributeToWorkgroupsPasses(
       pm, /*useFuseTensorPadWithConsumerPass=*/true);
 
@@ -346,41 +345,6 @@ void addSPIRVWinogradVectorizePassPipeline(OpPassManager &pm) {
   // forwarding, shape casting and casting op cancelling.
   nestedModulePM.addNestedPass<func::FuncOp>(
       createOptimizeVectorTransferPass());
-#else
-
-  addTileAndDistributeToWorkgroupsPasses(pm);
-
-  auto &nestedModulePM = pm.nest<ModuleOp>();
-  addBufferizePasses(nestedModulePM, gpuAllocateWorkgroupMemoryFn);
-
-  // Tile and distribute to GPU invocations.
-  nestedModulePM.addNestedPass<func::FuncOp>(createSPIRVWinogradPromotePass());
-  nestedModulePM.addNestedPass<func::FuncOp>(createMemrefCopyToLinalgPass());
-  nestedModulePM.addNestedPass<func::FuncOp>(
-      createFoldAffineMinInDistributedLoopsPass());
-  nestedModulePM.addPass(memref::createResolveShapedTypeResultDimsPass());
-
-  nestedModulePM.addPass(createCanonicalizerPass());
-  nestedModulePM.addPass(createCSEPass());
-
-  // Tile to GPU invocations and vectorize.
-  nestedModulePM.addNestedPass<func::FuncOp>(
-      createSPIRVCreateFastSlowPathPass());
-  //nestedModulePM.addNestedPass<func::FuncOp>(createSPIRVTilePass());
-  nestedModulePM.addPass(createCanonicalizerPass());
-  nestedModulePM.addPass(createCSEPass());
-  nestedModulePM.addNestedPass<func::FuncOp>(createSPIRVVectorizePass());
-  nestedModulePM.addNestedPass<func::FuncOp>(createForOpCanonicalizationPass());
-  nestedModulePM.addPass(createCanonicalizerPass());
-  nestedModulePM.addPass(createCSEPass());
-
-  // Bufferize and distribute.
-  addSPIRVBufferizePasses(nestedModulePM, gpuAllocateFunctionMemoryFn);
-
-  // Generate loop nests for all remaining ops and remove trivial loops.
-  addLoopMaterializationPasses(nestedModulePM);
-
-#endif
 }
 
 void addSPIRVBaseDistributePassPipeline(OpPassManager &pm) {
