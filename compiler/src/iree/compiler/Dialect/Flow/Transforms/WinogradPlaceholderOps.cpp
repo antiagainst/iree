@@ -259,7 +259,8 @@ class ConvertConv2DNhwcHwcf final
             splatValue = kernel.getSplatValue<APFloat>().convertToFloat();
           }
           auto foldedKernel = foldFilterTransform(shape, isSplat, splatValue, elementType, rewriter);
-          tKernel = rewriter.replaceOpWithNewOp<IREE::Util::UnfoldableConstantOp>(definingOp, foldedKernel);
+          auto newConstOp = rewriter.create<arith::ConstantOp>(loc, foldedKernel);
+          tKernel = rewriter.replaceOpWithNewOp<IREE::Util::DoNotOptimizeOp>(definingOp, newConstOp.getResult()).getResult(0);
           constantFolded = true;
         }
       }
