@@ -7,6 +7,8 @@
 #include "iree/compiler/Dialect/Flow/IR/FlowOps.h"
 #include "iree/compiler/Dialect/Flow/Transforms/PassDetail.h"
 #include "iree/compiler/Dialect/Flow/Transforms/Passes.h"
+#include "iree/compiler/Dialect/Util/IR/UtilDialect.h"
+#include "iree/compiler/Dialect/Util/IR/UtilOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -19,6 +21,10 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include <fstream>
+
+#define INDEX2(y, x, dimy, dimx)  (x + dimx * y)
+#define INDEX4(z, y, x, w, dimz, dimy, dimx, dimw)  (w + dimw * (x + dimx * (y + dimy * z)))
 
 namespace mlir {
 namespace iree_compiler {
@@ -30,6 +36,26 @@ static int constexpr outputTileSize = 6;
 static bool hasAllOneValues(DenseIntElementsAttr attr) {
   return llvm::all_of(
       attr, [](APInt element) { return element.getSExtValue() == 1; });
+}
+
+static void write_tensor_to_file(SmallVectorImpl<APFloat> &tensor, SmallVectorImpl<int64_t> &shape, std::string filename) {
+  printf("Writing tensor to file %s\n", filename.c_str());
+  std::ofstream outputFile(filename, std::ios::out);
+  std::stringstream ss;
+  std::string shapeStr{""};
+  int64_t totalSize{1};
+  for (int i = 0; i < shape.size(); i++) {
+    shapeStr += std::to_string(shape[i]);
+    shapeStr += ",";
+    totalSize *= shape[i];
+  }
+  outputFile << shapeStr << "\n";
+  for (int i = 0; i < totalSize; i++) {
+    ss << tensor[i].convertToFloat() << ",";
+  }
+  std::string out = ss.str();
+  out.pop_back();
+  outputFile << out;
 }
 
 namespace {
@@ -115,6 +141,59 @@ class ConvertConv2DNhwcHwcf final
     return broadcastOp.getResult(0);
   }
 
+  // TODO: Add support for non-splat values
+  static DenseElementsAttr foldFilterTransform(ArrayRef<int64_t> shape, 
+    bool isSplat, float splatValue, Type elementType, PatternRewriter &rewriter) {
+
+    // Define G matrix
+    constexpr int64_t Grows = 8;
+    constexpr int64_t Gcols = 3;
+
+    printf("Constant folding matrix of shape %ld x %ld x %ld x %ld -> %ld x %ld x %ld x %ld \n",
+            shape[0], shape[1], shape[2], shape[3], Grows, Grows, shape[2], shape[3]);
+
+    double G[Grows * Gcols] = {
+      1, 0, 0,
+      -2./9., -2./9., -2./9.,
+      -2./9., 2./9., -2./9.,
+      1./90, 1./45, 2./45,
+      1./90, -1./45, 2./45,
+      32./45, 16./45, 8./45,
+      32./45, -16./45, 8./45,
+      0, 0, 1
+    };
+    
+    // Assumes incoming shape is HWCF
+    // TODO: This definitely isnt the best way to store a large weight like this
+    SmallVector<APFloat> output(Grows * Grows * shape[2] * shape[3], APFloat(0.0f));
+    for (int d0 = 0; d0 < Grows; d0++) {
+      for (int d1 = 0; d1 < Grows; d1++) {
+        for (int d2 = 0; d2 < shape[2]; d2++) {
+          for (int d3 = 0; d3 < shape[3]; d3++) {
+            int odx = INDEX4(d0, d1, d2, d3, Grows, Grows, shape[2], shape[3]);
+            float accum = 0.0;
+            for (int d4 = 0; d4 < Gcols; d4++) {
+              for (int d5 = 0; d5 < Gcols; d5++) {
+                float ival = splatValue; // input[INDEX4(d4, d5, d2, d3, shape[0], shape[1], shape[2], shape[3])];
+                int idx0 = INDEX2(d0, d4, Grows, Gcols);
+                int idx1 = INDEX2(d1, d5, Grows, Gcols);
+                accum += G[idx0] * ival * G[idx1];
+              }
+            }
+            output[odx] = APFloat(accum);
+          }
+        }
+      }
+    }
+
+    bool debug{false};
+    SmallVector<int64_t> outputShape{Grows, Grows, shape[2], shape[3]};
+    if (debug)
+      write_tensor_to_file(output, outputShape, "estimated.csv");
+    auto outputType = RankedTensorType::get(outputShape, elementType);
+    return DenseElementsAttr::get(outputType, output);
+  }
+
   LogicalResult matchAndRewrite(linalg::Conv2DNhwcHwcfOp convOp,
                                 PatternRewriter &rewriter) const override {
 
@@ -151,21 +230,6 @@ class ConvertConv2DNhwcHwcf final
                    + inputTileSize - iw;
     auto zero = rewriter.create<arith::ConstantOp>(loc, rewriter.getZeroAttr(elementType));
 
-    //SmallVector<OpFoldResult> loPad{inputShape.size(), rewriter.getIndexAttr(0)};
-    //SmallVector<OpFoldResult> hiPad{inputShape.size(), rewriter.getIndexAttr(0)};
-    //hiPad[1] = rewriter.getIndexAttr(padH);
-    //hiPad[2] = rewriter.getIndexAttr(padW);
-    //auto padTensorOp = rewriter.create<tensor::PadOp>(loc, 
-    //     RankedTensorType::get(SmallVector<int64_t>{in, ih + padH, iw + padW, ic}, elementType), input, loPad, hiPad);
-    //auto &region = padTensorOp.getRegion();
-    //int rank = padTensorOp.getResultType().getRank();
-    //SmallVector<Type> blockArgTypes(rank, rewriter.getIndexType());
-    //SmallVector<Location> blockArgLocs(rank, loc);
-    //rewriter.createBlock(&region, region.end(), blockArgTypes, blockArgLocs);
-    //rewriter.create<tensor::YieldOp>(loc, zero);
-    //rewriter.setInsertionPointAfter(padTensorOp);
-    //auto paddedInput = padTensorOp.getResult();
-
     const int ihm = std::ceil((ih + padH - kh + 1) / outputTileSize);
     const int iwm = std::ceil((iw + padW - kw + 1) / outputTileSize);
     SmallVector<int64_t> shape = {inputTileSize, inputTileSize, in, ihm, iwm, ic};
@@ -174,67 +238,37 @@ class ConvertConv2DNhwcHwcf final
 
     Value kernel = convOp.getInputs()[1];
     const int oc = kernelShape[3];
-  #if 1
-    // Original filter transform here
-    auto transformedKernelType = RankedTensorType::get({inputTileSize, inputTileSize, oc, ic}, elementType);
-    auto tKernel = rewriter.create<IREE::Flow::WinogradFilterTransformOp>(loc, transformedKernelType, kernel);
+    // Check if filter transform can be constant folded
+    auto definingOp = kernel.getDefiningOp<IREE::Util::DoNotOptimizeOp>();
+    Value tKernel;
+    bool constantFolded{false};
+    if (definingOp) {
+      // Find arith constant op
+      if (auto constOp = definingOp.getOperands()[0].getDefiningOp<arith::ConstantOp>()) {
+        auto kernel = constOp.getValue().cast<DenseIntOrFPElementsAttr>();
+        auto type = constOp.getType().cast<ShapedType>();
+        auto elementType = type.getElementType();
+        auto shape = type.getShape();
+        float splatValue{0.0};
+        bool isSplat = kernel.isSplat();
+        if (isSplat) {
+          if (elementType.isa<IntegerType>()) {
+            splatValue = (float) kernel.getSplatValue<APInt>().getSExtValue();
+          }
+          if (elementType.isa<FloatType>()) {
+            splatValue = kernel.getSplatValue<APFloat>().convertToFloat();
+          }
+          auto foldedKernel = foldFilterTransform(shape, isSplat, splatValue, elementType, rewriter);
+          tKernel = rewriter.replaceOpWithNewOp<IREE::Util::UnfoldableConstantOp>(definingOp, foldedKernel);
+          constantFolded = true;
+        }
+      }
+    }
 
-#else
-    /**** Alternative to filter transform ***/
-    // Create generic to broadcast the G and GT values
-    SmallVector<float> G{
-      1, 0, 0,
-      -2./9., -2./9., -2./9.,
-      -2./9., 2./9., -2./9.,
-      1./90, 1./45, 2./45,
-      1./90, -1./45, 2./45,
-      32./45, 16./45, 8./45,
-      32./45, -16./45, 8./45,
-      0, 0, 1
-    };
-    int Grows = 8;
-    int Gcols = 3;
-    auto GValue = rewriter.create<arith::ConstantOp>(loc, DenseFPElementsAttr::get(
-      RankedTensorType::get({Grows, Gcols}, rewriter.getF32Type()), G));
-    SmallVector<int64_t> GbroadcastShape{ic, oc, Grows, Gcols};
-    auto Gbroadcast = createBroadcastOp(GValue, ic, oc, Grows, Gcols, elementType, loc, rewriter, false); 
-    auto GTbroadcast = createBroadcastOp(GValue, ic, oc, Grows, Gcols, elementType, loc, rewriter, true); 
-    auto transposedKernel = createTransposeOp(kernel, elementType, loc, rewriter); 
-
-    SmallVector<int64_t> collapsedShape{ic * oc, Grows, Gcols};
-    SmallVector<ReassociationIndices> reassociations = {{0, 1}, {2}, {3}};
-    auto gInput = createCollapseOrExpand(Gbroadcast, loc, rewriter, collapsedShape, reassociations, true);
-
-    collapsedShape = {ic * oc, Gcols, Grows};
-    reassociations = {{0, 1}, {2}, {3}};
-    auto gtInput = createCollapseOrExpand(GTbroadcast, loc, rewriter, collapsedShape, reassociations, true);
-
-    collapsedShape = {ic * oc, Gcols, Gcols};
-    reassociations = {{0, 1}, {2}, {3}};
-    auto kInput = createCollapseOrExpand(transposedKernel, loc, rewriter, collapsedShape, reassociations, true);
-
-    SmallVector<int64_t> bmmShape{ic * oc, Gcols, Grows};
-    auto bmmOutputType = RankedTensorType::get(bmmShape, elementType);
-    Value emptyTensor = rewriter.create<tensor::EmptyOp>(loc, bmmShape, elementType);
-    Value accumulator = rewriter.create<linalg::FillOp>(loc, ValueRange{zero}, ValueRange{emptyTensor}).result();
-    auto bmmResult = rewriter.create<linalg::BatchMatmulOp>(loc, bmmOutputType,
-      ValueRange({kInput, gtInput}), ValueRange({accumulator})).getResult(0);
-
-    bmmShape = {ic * oc, Grows, Grows};
-    bmmOutputType = RankedTensorType::get(bmmShape, elementType);
-    emptyTensor = rewriter.create<tensor::EmptyOp>(loc, bmmShape, elementType);
-    accumulator = rewriter.create<linalg::FillOp>(loc, ValueRange{zero}, ValueRange{emptyTensor}).result();
-    bmmResult = rewriter.create<linalg::BatchMatmulOp>(loc, bmmOutputType,
-      ValueRange({gInput, bmmResult}), ValueRange({accumulator})).getResult(0);
-
-    // Create expand shapes
-    SmallVector<int64_t> expandedShape = {ic, oc, Grows, Grows};
-    SmallVector<ReassociationIndices> resultReassociations = {{0, 1}, {2}, {3}};
-    auto expanded = createCollapseOrExpand(bmmResult, loc, rewriter, expandedShape, resultReassociations, false);
-
-    // Transpose expanded shape
-    auto tKernel = createTransposeOp(expanded, elementType, loc, rewriter); 
-#endif
+    if (!constantFolded) {
+      auto transformedKernelType = RankedTensorType::get({inputTileSize, inputTileSize, oc, ic}, elementType);
+      tKernel = rewriter.create<IREE::Flow::WinogradFilterTransformOp>(loc, transformedKernelType, kernel);
+    }
 
     // Add collapse shape
     SmallVector<int64_t> collapsedShape = {inputTileSize * inputTileSize, in * ihm * iwm, ic};
@@ -279,34 +313,6 @@ class ConvertConv2DNhwcHwcf final
     Value result = convOp.getResult(0);
     result.replaceAllUsesWith(tOutput);
 
-    /*
-    rewriter.setInsertionPointAfter(convOp);
-    // Create generic add that will still allow consumer fusion
-    auto outputShape = output.getType().cast<ShapedType>().getShape();
-    int64_t iterationSpaceDim = 4;
-    SmallVector<AffineExpr> idExprs;
-    for (auto i = 0; i < iterationSpaceDim; i++) {
-      idExprs.push_back(getAffineDimExpr(i, rewriter.getContext()));
-    }
-    SmallVector<AffineMap> indexingMaps = {
-      AffineMap::get(iterationSpaceDim, 0, idExprs, rewriter.getContext()),
-      AffineMap::get(iterationSpaceDim, 0, idExprs, rewriter.getContext()),
-      AffineMap::get(iterationSpaceDim, 0, idExprs, rewriter.getContext()),
-    };
-    SmallVector<StringRef> iteratorTypes(iterationSpaceDim, getParallelIteratorTypeName());
-    Value emptyTensor = rewriter.create<tensor::EmptyOp>(loc, outputShape, elementType);
-    auto endOp = rewriter.create<linalg::GenericOp>(loc, output.getType(), 
-      ValueRange({result, tOutput}), emptyTensor,
-      indexingMaps, iteratorTypes, 
-      [&](OpBuilder &b, Location loc, ValueRange args) {
-        Value result = b.create<arith::AddFOp>(loc, args[0], args[1]);
-        b.create<linalg::YieldOp>(loc, result);
-      });
-
-    convOp->setAttr("type", rewriter.getStringAttr("winograd"));
-    result.replaceAllUsesExcept(endOp.getResult(0), {endOp});
-    */
-    
     return success();
   }
 };
@@ -314,7 +320,8 @@ class ConvertConv2DNhwcHwcf final
 struct WinogradPlaceholderOpsPass
     : WinogradPlaceholderOpsBase<WinogradPlaceholderOpsPass> {
   void getDependentDialects(DialectRegistry &registry) const override {
-    registry.insert<linalg::LinalgDialect, IREE::Flow::FlowDialect>();
+    registry.insert<linalg::LinalgDialect, IREE::Flow::FlowDialect,
+                    IREE::Util::UtilDialect>();
   }
   void runOnOperation() override {
     MLIRContext *context = &getContext();
