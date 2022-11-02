@@ -1091,7 +1091,7 @@ LogicalResult initSPIRVLaunchConfig(ModuleOp module) {
         if (winogradType == "winograd_output") {
           printf("got output!\n");
         } 
-        auto pipeline = CodeGenPipeline::SPIRVBaseVectorize;
+        auto pipeline = CodeGenPipeline::SPIRVBaseDistribute;
         if (failed(setOpConfigAndEntryPointFnTranslation(funcOp, computeOp, tileSizes,
                                                          pipeline, workgroupSize))) {
           return failure();
