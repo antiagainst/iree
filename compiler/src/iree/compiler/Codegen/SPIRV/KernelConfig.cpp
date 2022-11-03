@@ -1082,16 +1082,24 @@ LogicalResult initSPIRVLaunchConfig(ModuleOp module) {
         tileSizes.push_back(workgroupTileSizes);
         tileSizes.push_back(threadTileSizes);
         SmallVector<int64_t, 3> workgroupSize{32, 1, 1};  // (X, Y, Z)
+        IREE::Codegen::DispatchLoweringPassPipeline pipeline;
+        // Get static shapes
+        // [2, 2, 2, 1280]
+        // workgroups = [1, 0, 0, 32], num_wgs = [1, 1, 40] -> 40 blocks
+        // block_Dim = [1, 1, 1]  num_threads = [2, 2, 32] -> 128 threads/block
         if (winogradType == "winograd_input") {
+          workgroupSize = {32, 2, 2};
+          pipeline = CodeGenPipeline::SPIRVWinogradVectorize;
           printf("got input!\n");
         } 
         if (winogradType == "winograd_filter") {
+          pipeline = CodeGenPipeline::SPIRVBaseDistribute;
           printf("got filter!\n");
         } 
         if (winogradType == "winograd_output") {
+          pipeline = CodeGenPipeline::SPIRVBaseDistribute;
           printf("got output!\n");
         } 
-        auto pipeline = CodeGenPipeline::SPIRVBaseDistribute;
         if (failed(setOpConfigAndEntryPointFnTranslation(funcOp, computeOp, tileSizes,
                                                          pipeline, workgroupSize))) {
           return failure();

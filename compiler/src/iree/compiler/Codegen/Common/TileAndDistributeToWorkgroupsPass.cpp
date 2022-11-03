@@ -252,7 +252,7 @@ static void computeWinogradStaticLoopRanges(SmallVectorImpl<int64_t> &loopSizes,
           loopSizes.push_back(shape[3]);
         } else {
           // Only need 1st (N) and last (C) dims
-          loopSizes.push_back(shape[0]);
+          //loopSizes.push_back(shape[0]);
           loopSizes.push_back(shape[shape.size() - 1]);
         }
         return;
@@ -288,7 +288,8 @@ void TileAndDistributeToWorkgroupsPass::runOnOperation() {
             SmallVector<unsigned> partitionableLoops = {0, 1};
             SmallVector<int64_t> interchange, staticLoopRanges, tileSizes;
             if (winogradType == "winograd_input") {
-              tileSizes = {1, 32};
+              partitionableLoops = {0};
+              tileSizes = {32};
             }
             if (winogradType == "winograd_filter") {
               tileSizes = {32, 32};

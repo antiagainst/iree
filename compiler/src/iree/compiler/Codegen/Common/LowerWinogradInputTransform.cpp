@@ -166,19 +166,17 @@ class ConvertWinogradInputTransform final
                                    PatternRewriter &rewriter) {
     auto workgroupLoops = workgroupLoopNest.loops;
     Value lb, step;
+    rewriter.setInsertionPoint(workgroupLoops[0]);
     for (int i = 0; i < numWorkgroups; i++) {
       if (i > 0) {
         rewriter.setInsertionPoint(&workgroupLoops[i - 1].getBody()->front());
-        AffineExpr s0;
-        bindSymbols(rewriter.getContext(), s0);
-        auto tileSize = schedule.tilingInfo[i].tile;
-        AffineMap map = AffineMap::get(0, 1, {s0 * rewriter.getAffineConstantExpr(tileSize)}, rewriter.getContext());
-        lb = rewriter.createOrFold<AffineApplyOp>(loc, map, ValueRange{ids[i]});
-        step = rewriter.createOrFold<AffineApplyOp>(loc, map, ValueRange{counts[i]});
-      } else {
-        lb = ids[i];
-        step = counts[i];
       }
+      AffineExpr s0;
+      bindSymbols(rewriter.getContext(), s0);
+      auto tileSize = schedule.tilingInfo[i].tile;
+      AffineMap map = AffineMap::get(0, 1, {s0 * rewriter.getAffineConstantExpr(tileSize)}, rewriter.getContext());
+      lb = rewriter.createOrFold<AffineApplyOp>(loc, map, ValueRange{ids[i]});
+      step = rewriter.createOrFold<AffineApplyOp>(loc, map, ValueRange{counts[i]});
       workgroupLoops[i].setLowerBound(lb);
       workgroupLoops[i].setStep(step);
     }
@@ -225,7 +223,7 @@ class ConvertWinogradInputTransform final
                                         : schedule.tensorFormat["output"].find('W');
         outputState.offsets[offpos] = rewriter.createOrFold<AffineApplyOp>(loc, outputMap, ValueRange{iv});
       }
-      if (info.dim == 'c') {
+      if ((info.dim == 'c') || (info.dim == 'n')) {
         // Assumes input and output have c dimension
         inputState.sizes[pos] = rewriter.getIndexAttr(info.tile);
         outputState.sizes[opos] = rewriter.getIndexAttr(info.tile);
@@ -546,6 +544,12 @@ class ConvertWinogradInputTransform final
         return {iterArgs[0]};
     });
 
+    // Add spirv attributes to loops
+    const char *attrName = "iree.spirv.distribute_dim";
+    for (int i = loopNest.loops.size() - 2, dim = 0; i >= 0; --i) {
+      loopNest.loops[i]->setAttr(attrName, rewriter.getIndexAttr(dim++));
+    }
+
     // Generate flow stores
     generateFlowStores(inputOp, loopNest.getResults()[0], outputState, loc, rewriter);
 
@@ -588,11 +592,11 @@ class ConvertWinogradInputTransform final
     schedule.tensorFormat = {{"input", "nhwc"}, {"output", "tpnHWc"}};
     schedule.tilingInfo = {
       /* dim, lo, hi, step, tile, is_workgroup */
-      {'n', 0, -1,  1,  1,  1},
       {'c', 0, -1, 32, 32,  1},
       {'h', 0, -1,  6,  8,  0},
       {'w', 0, -1,  6,  8,  0},
-      {'c', 0, 32,  1,  1,  0}
+      {'c', 0, 32,  1,  1,  0},
+      {'n', 0, -1,  1,  1,  0},
     };
     if (failed(applySchedule(inputOp, schedule, rewriter)))
       return failure();
