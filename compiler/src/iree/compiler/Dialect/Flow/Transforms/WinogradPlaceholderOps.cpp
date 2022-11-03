@@ -276,7 +276,7 @@ class ConvertConv2DNhwcHwcf final
     SmallVector<ReassociationIndices> reassociations = {{0, 1}, {2, 3, 4}, {5}};
     auto cInput = createCollapseOrExpand(tInput, loc, rewriter, collapsedShape, reassociations, true);
 
-    SmallVector<int64_t> collapsedFilterShape = {inputTileSize * inputTileSize, oc, ic};
+    SmallVector<int64_t> collapsedFilterShape = {inputTileSize * inputTileSize, ic, oc};
     SmallVector<ReassociationIndices> filterReassociations = {{0, 1}, {2}, {3}};
     auto cKernel = createCollapseOrExpand(tKernel, loc, rewriter, collapsedFilterShape, filterReassociations, true);
 
