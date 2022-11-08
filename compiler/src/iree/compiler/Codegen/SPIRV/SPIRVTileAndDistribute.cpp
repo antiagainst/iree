@@ -19,6 +19,7 @@
 #include "iree/compiler/Codegen/Passes.h"
 #include "iree/compiler/Codegen/SPIRV/Utils.h"
 #include "iree/compiler/Codegen/Transforms/Transforms.h"
+#include "iree/compiler/Codegen/Utils/GPUUtils.h"
 #include "iree/compiler/Codegen/Utils/MarkerUtils.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Debug.h"
@@ -82,6 +83,47 @@ static void populateTilingToInvocationPatterns(RewritePatternSet &patterns) {
                                                      filter);
   patterns.add<IREE::LinalgExt::TilingInterfaceTilingPattern>(
       context, tilingOptions, filter);
+}
+
+static LogicalResult tileParallelDimsToThreads(
+    func::FuncOp funcOp, ArrayRef<int64_t> workgroupSize) {
+  SmallVector<TilingInterface> computeOps;
+  funcOp.walk([&](TilingInterface op) { computeOps.push_back(op); });
+
+  for (TilingInterface tilingOp : computeOps) {
+    auto partitionableOp = cast<PartitionableLoopsInterface>(*tilingOp);
+    SmallVector<unsigned> partitionedLoops =
+        partitionableOp.getPartitionableLoops(kNumMaxParallelDims);
+    // If there are no partitioned dimensions, skip the tiling.
+    if (partitionedLoops.empty()) continue;
+
+    IRRewriter rewriter(tilingOp->getContext());
+    rewriter.setInsertionPoint(tilingOp);
+
+    size_t numLoops = llvm::count_if(
+        tilingOp.getLoopIteratorTypes(), [](utils::IteratorType iterator) {
+          return iterator == utils::IteratorType::parallel;
+        });
+    SmallVector<OpFoldResult> numThreads(numLoops, rewriter.getIndexAttr(0));
+
+    int64_t threadId = 0;
+    SmallVector<int64_t> threadIds;
+    // We map partitioned loops to GPU thread IDs in the reverse order.
+    for (auto loop : llvm::enumerate(llvm::reverse(partitionedLoops))) {
+      const int64_t dimSize = workgroupSize[loop.index()];
+      if (dimSize > 1) {
+        numThreads[loop.value()] = rewriter.getIndexAttr(dimSize);
+        threadIds.push_back(threadId++);
+      }
+    }
+    std::reverse(threadIds.begin(), threadIds.end());
+    for (int64_t i = threadId; i < kNumGPUDims; i++) threadIds.push_back(i);
+
+    auto tilingResult = linalg::tileToForeachThreadOp(rewriter, tilingOp,
+                                                      numThreads, threadIds);
+    rewriter.replaceOp(tilingOp, tilingResult->tileOp->getResults());
+  }
+  return success();
 }
 
 //====---------------------------------------------------------------------===//
