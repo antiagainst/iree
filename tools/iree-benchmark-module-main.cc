@@ -52,6 +52,13 @@
 // an appropriate device-specific tool before trusting the more generic and
 // higher-level numbers from this tool.
 
+#include <errno.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/mman.h>
+#include <unistd.h>
+
 #include <array>
 #include <cstdio>
 #include <iterator>
@@ -179,6 +186,82 @@ IREE_FLAG_CALLBACK(
 namespace iree {
 namespace {
 
+// Holds some information about a single memory mapping.
+typedef struct {
+  // Start of address range. Inclusive.
+  intptr_t start_address;
+  // End of address range. Exclusive, so the mapping is the half-open interval
+  // [start, end) and its length in bytes is `end - start`. As in
+  // /proc/self/maps.
+  intptr_t end_address;
+  // File path or other [annotation]
+  char name[1024];
+} Mapping;
+
+size_t GetNumResidentBytesInMapping(const Mapping* mapping) {
+  size_t mapping_size = mapping->end_address - mapping->start_address;
+  size_t page_size = sysconf(_SC_PAGESIZE);
+  size_t num_pages = mapping_size / page_size;
+  unsigned char* output = static_cast<unsigned char*>(malloc(num_pages));
+  if (mincore((void*)(mapping->start_address), mapping_size, output)) {
+    free(output);
+    printf("mincore failed, errno=%d, %s\n", errno, strerror(errno));
+    return 0;
+  }
+  size_t num_resident_pages = 0;
+  for (size_t i = 0; i < num_pages; ++i) {
+    num_resident_pages += (output[i] & 1);
+  }
+  free(output);
+  return num_resident_pages * page_size;
+}
+
+// `report_nameless` can be 0 or 1. 0 means skip anonymous mappings that don't
+// even have an annotation such as [heap] or [anon.bss] --- meaning even with
+// '0' you still get all those anonymous mappings.
+// The motivation to pass '0' is there tends to be some gigantic and mostly
+// uninteresting mappings, which can make the program run a bit slow.
+void ReportMappingsResidency(int report_nameless) {
+  FILE* file = fopen("/proc/self/maps", "r");
+  if (!file) {
+    printf("opening /proc/self/maps failed, errno=%d, %s\n", errno,
+           strerror(errno));
+    return;
+  }
+  char line[1024];
+  while (fgets(line, sizeof(line), file)) {
+    Mapping mapping;
+    memset(&mapping, 0, sizeof mapping);
+    if (sscanf(line, "%lx-%lx", &mapping.start_address, &mapping.end_address) !=
+        2)
+      continue;
+    char* first_char_of_name = strchr(line, '/');
+    if (!first_char_of_name) {
+      first_char_of_name = strchr(line, '[');
+    }
+    if (first_char_of_name) {
+      strcpy(mapping.name, first_char_of_name);
+      int name_length = strlen(mapping.name);
+      if (mapping.name[name_length - 1] == '\n') {
+        mapping.name[name_length - 1] = 0;
+      }
+    }
+    if (strlen(mapping.name) == 0) {
+      if (!report_nameless) continue;
+      // note that some key anonymous mappings have a non-empty name,
+      // e.g. [heap].
+      printf("anonymous mapping (0x%lx-0x%lx)", mapping.start_address,
+             mapping.end_address);
+    } else {
+      printf("%s", mapping.name);
+    }
+    printf(": %zu bytes resident out of %zu bytes mapped\n",
+           GetNumResidentBytesInMapping(&mapping),
+           mapping.end_address - mapping.start_address);
+  }
+  fclose(file);
+}
+
 static void BenchmarkGenericFunction(const std::string& benchmark_name,
                                      int32_t batch_size,
                                      iree_vm_context_t* context,
@@ -196,10 +279,12 @@ static void BenchmarkGenericFunction(const std::string& benchmark_name,
   while (state.KeepRunningBatch(batch_size)) {
     IREE_TRACE_SCOPE0("BenchmarkIteration");
     IREE_TRACE_FRAME_MARK_NAMED("Iteration");
+    printf("Iteration#%zu:\n", state.iterations());
     IREE_CHECK_OK(iree_vm_invoke(
         context, function, IREE_VM_INVOCATION_FLAG_NONE, /*policy=*/nullptr,
         inputs, outputs.get(), iree_allocator_system()));
     IREE_CHECK_OK(iree_vm_list_resize(outputs.get(), 0));
+    ReportMappingsResidency(1);
   }
   state.SetItemsProcessed(state.iterations());
 }
