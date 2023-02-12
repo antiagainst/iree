@@ -28,8 +28,9 @@ struct MetalShader {
 };
 
 // Cross compiles SPIR-V into Metal Shading Language source code for the
-// compute shader with |entryPoint|. Returns std::nullopt on failure.
-llvm::Optional<MetalShader> crossCompileSPIRVToMSL(
+// compute shader with |entryPoint| and returns the MSL source and the new
+// entry point name. Returns std::nullopt on failure.
+llvm::Optional<std::pair<MetalShader, std::string>> crossCompileSPIRVToMSL(
     llvm::ArrayRef<uint32_t> spvBinary, StringRef entryPoint);
 
 }  // namespace iree_compiler
