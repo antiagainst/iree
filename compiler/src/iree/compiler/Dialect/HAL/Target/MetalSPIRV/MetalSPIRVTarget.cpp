@@ -88,8 +88,8 @@ class MetalSPIRVTargetBackend : public TargetBackend {
   std::string name() const override { return "metal"; }
 
   void getDependentDialects(DialectRegistry &registry) const override {
-    registry.insert<IREE::Codegen::IREECodegenDialect, spirv::SPIRVDialect,
-                    gpu::GPUDialect>();
+    registry.insert<gpu::GPUDialect, IREE::Codegen::IREECodegenDialect,
+                    IREE::Flow::FlowDialect, spirv::SPIRVDialect>();
   }
 
   IREE::HAL::DeviceTargetAttr getDefaultDeviceTarget(
@@ -115,6 +115,13 @@ class MetalSPIRVTargetBackend : public TargetBackend {
     // We could instead perform linking with those objects (if they're Metal
     // archives, etc).
     if (variantOp.isExternal()) return;
+
+    // Metal does not have push constant support, so replace loads from
+    // push constants with loads from uniform buffers.
+    // The corresponding runtime code must perform similar emulation, based
+    // on the push constant count listed in the executable layout.
+    passManager.nest<ModuleOp>().nest<func::FuncOp>().addPass(
+        createReplacePushConstantsPass());
 
     buildSPIRVCodegenPassPipeline(passManager, /*enableFastMath=*/false);
   }
