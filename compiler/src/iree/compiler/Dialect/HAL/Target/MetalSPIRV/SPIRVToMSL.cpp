@@ -6,8 +6,6 @@
 
 #include "iree/compiler/Dialect/HAL/Target/MetalSPIRV/SPIRVToMSL.h"
 
-#include <vector>
-
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
@@ -48,10 +46,12 @@ class SPIRVToMSLCompiler : public SPIRV_CROSS_NAMESPACE::CompilerMSL {
     }
   };
 
-  // Returns all all resource buffer descriptors' set and binding number pairs
-  // in increasing order.
-  std::vector<Descriptor> getBufferSetBindingPairs() {
-    std::vector<Descriptor> descriptors;
+  // Fills all all resource buffer descriptors' set and binding number pairs
+  // in increasing order, and returns true if no unsupported cases are
+  // encountered.
+  bool getBufferSetBindingPairs(SmallVectorImpl<Descriptor>* descriptors) {
+    descriptors->clear();
+    bool hasUnknownCase = false;
 
     // Iterate over all variables in the SPIR-V blob.
     ir.for_each_typed_id<SPIRV_CROSS_NAMESPACE::SPIRVariable>(
@@ -72,15 +72,17 @@ class SPIRVToMSLCompiler : public SPIRV_CROSS_NAMESPACE::CompilerMSL {
               storage == spv::StorageClassStorageBuffer) {
             uint32_t setNo = get_decoration(id, spv::DecorationDescriptorSet);
             uint32_t bindingNo = get_decoration(id, spv::DecorationBinding);
-            descriptors.emplace_back(setNo, bindingNo);
+            descriptors->emplace_back(setNo, bindingNo);
             return;
           }
-          // TODO(antiagainst): push constant
-          assert(false && "unspported storage class in SPIRVToMSLCompiler");
+          if (storage == spv::StorageClassPushConstant) {
+            assert(false && "push constant should already be replaced");
+          }
+          hasUnknownCase = true;
         });
 
-    llvm::sort(descriptors);
-    return descriptors;
+    llvm::sort(*descriptors);
+    return !hasUnknownCase;
   }
 
   Options getCompilationOptions() {
@@ -107,8 +109,11 @@ llvm::Optional<std::pair<MetalShader, std::string>> crossCompileSPIRVToMSL(
   spvCrossCompiler.set_entry_point(
       entryPoint.str(), spv::ExecutionModel::ExecutionModelGLCompute);
 
+  SmallVector<SPIRVToMSLCompiler::Descriptor> descriptors;
+  if (!spvCrossCompiler.getBufferSetBindingPairs(&descriptors))
+    return std::nullopt;
+
   // Explicitly set the argument buffer index for each SPIR-V resource variable.
-  auto descriptors = spvCrossCompiler.getBufferSetBindingPairs();
   for (const auto& descriptor : descriptors) {
     SPIRV_CROSS_NAMESPACE::MSLResourceBinding binding = {};
     binding.stage = spv::ExecutionModelGLCompute;
