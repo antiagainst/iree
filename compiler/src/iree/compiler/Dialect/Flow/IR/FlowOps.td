@@ -416,7 +416,8 @@ def FLOW_DispatchTieShapeOp : FLOW_PureOp<"dispatch.tie_shape", [
 
   let arguments = (ins
     FLOW_DispatchTensor:$operand,
-    FLOW_ShapeDynamicDims:$dynamic_dims
+    FLOW_ShapeDynamicDims:$dynamic_dims,
+    OptionalAttr<DenseI64ArrayAttr>:$dim_divisors
   );
   let results = (outs
     FLOW_DispatchTensor:$result
