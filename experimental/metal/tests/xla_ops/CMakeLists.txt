@@ -1,0 +1,73 @@
+# Copyright 2023 The IREE Authors
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+iree_check_single_backend_test_suite(
+  NAME
+    check_metal-spirv_metal
+  SRCS
+    "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/abs.mlir"
+    "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/add.mlir"
+    "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/batch_norm_inference.mlir"
+    "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/bitcast_convert.mlir"
+    "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/broadcast.mlir"
+    "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/broadcast_add.mlir"
+    "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/broadcast_in_dim.mlir"
+    "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/clamp.mlir"
+    "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/compare.mlir"
+    "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/concatenate.mlir"
+    "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/constant.mlir"
+    "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/convert.mlir"
+    "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/convolution.mlir"
+    "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/cosine.mlir"
+    "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/divide.mlir"
+    "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/dot.mlir"
+    "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/dot_general.mlir"
+    "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/dynamic_slice.mlir"
+    "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/dynamic_update_slice.mlir"
+    "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/exponential.mlir"
+    "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/exponential_fp16.mlir"
+    "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/exponential_minus_one.mlir"
+    # "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/fft.mlir"  # TODO(#9583)
+    "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/finite.mlir"
+    "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/floor.mlir"
+    "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/gather.mlir"
+    "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/iota.mlir"
+    "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/log.mlir"
+    "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/log_plus_one.mlir"
+    "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/maximum.mlir"
+    "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/minimum.mlir"
+    "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/multiply.mlir"
+    "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/negate.mlir"
+    "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/pad.mlir"
+    "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/pow.mlir"
+    "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/reduce.mlir"
+    "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/reduce_window.mlir"
+    "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/remainder.mlir"
+    "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/reshape.mlir"
+    "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/reverse.mlir"
+    "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/rng_normal.mlir"
+    "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/rng_uniform.mlir"
+    "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/round.mlir"
+    "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/rsqrt.mlir"
+    "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/scatter.mlir"
+    "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/scatter_dynamic.mlir"
+    "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/select.mlir"
+    "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/sine.mlir"
+    "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/slice.mlir"
+    "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/sort.mlir"
+    "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/sqrt.mlir"
+    "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/subtract.mlir"
+    "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/tanh.mlir"
+    "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/torch_index_select.mlir"
+    "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/transpose.mlir"
+    "${IREE_SOURCE_DIR}/tests/e2e/xla_ops/while.mlir"
+  TARGET_BACKEND
+    "metal-spirv"
+  DRIVER
+    "metal"
+  COMPILER_FLAGS
+    "--iree-input-type=mhlo"
+)
