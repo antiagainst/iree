@@ -13,6 +13,8 @@ iree_cc_library(
     "api.h"
   SRCS
     "api.h"
+    "builtin_executables.h"
+    "builtin_executables.m"
     "direct_allocator.h"
     "direct_allocator.m"
     "direct_command_buffer.h"
@@ -38,6 +40,7 @@ iree_cc_library(
     iree::base::internal::arena
     iree::base::internal::flatcc::parsing
     iree::base::tracing
+    iree::experimental::metal::builtin
     iree::hal
     iree::hal::utils::buffer_transfer
     iree::hal::utils::resource_set
