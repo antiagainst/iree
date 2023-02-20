@@ -7,6 +7,7 @@
 #include "experimental/metal/metal_device.h"
 
 #include "experimental/metal/api.h"
+#include "experimental/metal/builtin_executables.h"
 #include "experimental/metal/direct_allocator.h"
 #include "experimental/metal/direct_command_buffer.h"
 #include "experimental/metal/metal_fence.h"
@@ -38,6 +39,8 @@ typedef struct iree_hal_metal_device_t {
   // We only expose one single command queue for now. This simplifies synchronization.
   // We can relax this to support multiple queues when needed later.
   id<MTLCommandQueue> queue;
+
+  iree_hal_metal_builtin_executable_t* builtin_executable;
 
   // A dispatch queue and associated event listener for running Objective-C blocks to singal
   // semaphores and wake up threads.
@@ -82,6 +85,13 @@ static iree_status_t iree_hal_metal_device_create_internal(
 
   iree_status_t status = iree_hal_metal_allocator_create((iree_hal_device_t*)device, metal_device,
                                                          host_allocator, &device->device_allocator);
+  iree_hal_metal_builtin_executable_t* builtin_executable = NULL;
+  if (iree_status_is_ok(status)) {
+    status =
+        iree_hal_metal_builtin_executable_create(metal_device, host_allocator, &builtin_executable);
+  } else {
+    iree_hal_device_release((iree_hal_device_t*)device);
+  }
   if (iree_status_is_ok(status)) {
     iree_hal_resource_initialize(&iree_hal_metal_device_vtable, &device->resource);
     iree_string_view_append_to_buffer(identifier, &device->identifier,
@@ -90,15 +100,14 @@ static iree_status_t iree_hal_metal_device_create_internal(
     device->driver = driver;
     iree_hal_driver_retain(device->driver);
     device->host_allocator = host_allocator;
-    device->device = [metal_device retain];  // +1
+    device->device = [metal_device retain];          // +1
     device->queue = [metal_device newCommandQueue];  // +1
+    device->builtin_executable = builtin_executable;
     device->semaphore_notification_queue = dispatch_queue_create("dev.iree.queue.metal", NULL);
     device->event_listener = [[MTLSharedEventListener alloc]
         initWithDispatchQueue:device->semaphore_notification_queue];  // +1
 
     *out_device = (iree_hal_device_t*)device;
-  } else {
-    iree_hal_device_release((iree_hal_device_t*)device);
   }
   return iree_ok_status();
 }
@@ -124,6 +133,8 @@ static void iree_hal_metal_device_destroy(iree_hal_device_t* base_device) {
 
   [device->event_listener release];  // -1
   dispatch_release(device->semaphore_notification_queue);
+
+  iree_hal_metal_builtin_executable_destroy(device->builtin_executable);
 
   iree_hal_allocator_release(device->device_allocator);
   [device->queue release];   // -1
@@ -190,7 +201,7 @@ static iree_status_t iree_hal_metal_device_create_command_buffer(
     return iree_make_status(IREE_STATUS_UNIMPLEMENTED, "unimplmented multi-shot command buffer");
   return iree_hal_metal_direct_command_buffer_create(
       base_device, mode, command_categories, binding_capacity, device->queue,
-      device->host_allocator, &device->block_pool, out_command_buffer);
+      device->host_allocator, &device->block_pool, device->builtin_executable, out_command_buffer);
 }
 
 static iree_status_t iree_hal_metal_device_create_descriptor_set_layout(
