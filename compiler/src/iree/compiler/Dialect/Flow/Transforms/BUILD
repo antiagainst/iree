@@ -62,6 +62,7 @@ iree_compiler_cc_library(
         "Passes.cpp",
         "RaiseSpecialOps.cpp",
         "RegionOpUtils.cpp",
+        "RemoveDynamicizeOps.cpp",
         "SetEncoding.cpp",
         "SplitReduction.cpp",
         "StripAndSplatConstantVariables.cpp",

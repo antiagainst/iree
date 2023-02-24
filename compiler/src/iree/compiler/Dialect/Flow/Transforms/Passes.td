@@ -139,6 +139,12 @@ def EraseUnusedLinalgOperands :
   let constructor = "mlir::iree_compiler::IREE::Flow::createEraseUnusedLinalgOperands()";
 }
 
+def RemoveDynamicizeOps :
+    InterfacePass<"iree-flow-remove-dynamicize-ops-pass", "mlir::FunctionOpInterface"> {
+  let summary = "Remove flow.dispatch.dynamicize_* ops and let static shapes flow through";
+  let constructor = "mlir::iree_compiler::IREE::Flow::createRemoveDynamicizeOpsPass()";
+}
+
 def ExpandTensorShapes :
     Pass<"iree-flow-expand-tensor-shapes", "mlir::ModuleOp"> {
   let summary = "Expands tensor shape dimensions into SSA values across the program.";

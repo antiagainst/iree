@@ -157,6 +157,11 @@ createCloneProducersIntoDispatchRegionsPass();
 std::unique_ptr<InterfacePass<mlir::FunctionOpInterface>>
 createDynamicizeStaticShapesPass();
 
+// Pass to remove flow.dispatch.dynamicize_* ops and let static shapes flow
+// through.
+std::unique_ptr<InterfacePass<mlir::FunctionOpInterface>>
+createRemoveDynamicizeOpsPass();
+
 //===----------------------------------------------------------------------===//
 // Dispatches (flow.dispatch.workgroups)
 //===----------------------------------------------------------------------===//

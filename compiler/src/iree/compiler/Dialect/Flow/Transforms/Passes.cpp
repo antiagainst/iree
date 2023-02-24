@@ -285,6 +285,12 @@ void buildFlowTransformPassPipeline(OpPassManager &passManager,
   // wrapped in executables.
   passManager.addPass(IREE::Flow::createOutlineDispatchRegionsPass());
 
+  // Remove flow.dispatch.dynamicize_* ops now given we have outlined dispatch
+  // regions. They were used as "blockers" to avoid moving dynamic shape
+  // dimensions across region boundaries.
+  // passManager.addNestedPass<func::FuncOp>(
+  //    IREE::Flow::createRemoveDynamicizeOpsPass());
+
   // Strip assertions from executables. We could support them with a bunch of
   // work but our generated executables are designed to be safe in the face of
   // invalid values and it'd only be useful for debugging.
