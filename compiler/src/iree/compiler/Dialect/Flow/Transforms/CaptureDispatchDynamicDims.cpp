@@ -94,16 +94,9 @@ static void captureDims(IREE::Flow::DispatchWorkgroupsOp dispatchOp) {
       }
     }
 
-    DenseI64ArrayAttr divisors;
-    if (auto dynamicizeOp =
-            externalValue.getDefiningOp<Flow::DispatchDynamicizeShapeOp>()) {
-      divisors = dynamicizeOp.getDimDivisorsAttr();
-    }
-
     // Insert a shape tie op into the region to associate the dims.
     auto tieOp = entryBuilder.create<IREE::Flow::DispatchTieShapeOp>(
-        internalValue.getLoc(), tensorType, internalValue, capturedDims,
-        divisors);
+        internalValue.getLoc(), tensorType, internalValue, capturedDims);
     internalValue.replaceAllUsesExcept(tieOp.getResult(), tieOp);
   };
 
