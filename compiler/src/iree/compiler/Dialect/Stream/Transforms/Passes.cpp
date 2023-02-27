@@ -278,7 +278,7 @@ void buildStreamOptimizationPassPipeline(
 
   // Folding operands requires that CSE folds the inputs that we check for.
   passManager.addPass(mlir::createCSEPass());
-  // passManager.addPass(IREE::Stream::createFoldUniformOperandsPass());
+  passManager.addPass(IREE::Stream::createFoldUniformOperandsPass());
 
   // Only want to specialize after we've added all the operands we need above.
   // TODO(benvanik): make codegen more efficient with the specialized
