@@ -39,10 +39,6 @@ jobs:
             build-family: macos
             build-package: py-compiler-pkg
             experimental: true
-          - runs-on: self-hosted
-            build-family: macos
-            build-package: py-runtime-pkg
-            experimental: true
     env:
       MANYLINUX_X86_64_IMAGE: gcr.io/iree-oss/manylinux2014_x86_64-release@sha256:794513562cca263480c0c169c708eec9ff70abfe279d6dc44e115b04488b9ab5
 
