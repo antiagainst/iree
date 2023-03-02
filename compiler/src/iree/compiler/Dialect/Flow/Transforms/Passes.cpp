@@ -301,7 +301,11 @@ void buildFlowTransformPassPipeline(OpPassManager &passManager,
       // dispatches. We do this after deduping so that the executable names
       // match later stages.
       .addPredicatedPass(clTraceDispatchTensors,
-                         IREE::Flow::createInjectDispatchTracingPass)
+                         IREE::Flow::createInjectDispatchTracingPass);
+
+  if (clCropDispatchIndex >= 0) passManager.addPass(mlir::createInlinerPass());
+
+  FunctionLikeNest(passManager)
       .addPredicatedPass(clCropDispatchIndex >= 0,
                          []() {
                            return IREE::Flow::createCropDispatchPipelinePass(
