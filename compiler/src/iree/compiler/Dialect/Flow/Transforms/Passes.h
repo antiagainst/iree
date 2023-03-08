@@ -143,6 +143,12 @@ std::unique_ptr<InterfacePass<mlir::FunctionOpInterface>>
 createFormDispatchRegionsPass(bool aggressiveFusion = false,
                               bool generateWorkloadRegion = true);
 
+// Pass to convert standalone tensor.{extract|insert}_slice ops into flow tensor
+// ops, or wrap it in flow.dispatch.region ops.
+std::unique_ptr<InterfacePass<mlir::FunctionOpInterface>>
+createConvertStandaloneExtractInsertSlicesPass(
+    bool generateWorkloadRegion = true);
+
 // Pass to collapse dimensions of Linalg Ops on tensor ops.
 std::unique_ptr<InterfacePass<mlir::FunctionOpInterface>>
 createCollapseDimensionsPass();

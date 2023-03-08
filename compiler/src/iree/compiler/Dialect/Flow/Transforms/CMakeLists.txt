@@ -37,6 +37,7 @@ iree_cc_library(
     "CollapseReductionDims.cpp"
     "Convert1X1FilterConv2DToMatmul.cpp"
     "ConvertRegionToWorkgroups.cpp"
+    "ConvertStandaloneExtractInsertSlices.cpp"
     "ConvertToFlow.cpp"
     "DeduplicateExecutables.cpp"
     "DetachElementwiseFromNamedOps.cpp"

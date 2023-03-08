@@ -263,6 +263,11 @@ void buildFlowTransformPassPipeline(OpPassManager &passManager,
       // handle explicit captures as materialized as dispatch workgroup operands
       // and block arguments.
       .addPass(createCloneProducersIntoDispatchRegionsPass)
+      // Form dispatch regions for standalone tensor extract/insert slice ops.
+      .addPass([&]() {
+        return createConvertStandaloneExtractInsertSlicesPass(
+            clDispatchGenerateWorkloadRegion);
+      })
       // Turn static shapes into dynamic ones in dispatch regions.
       .addPredicatedPass(clDynamicizeStaticShapes,
                          createDynamicizeStaticShapesPass)

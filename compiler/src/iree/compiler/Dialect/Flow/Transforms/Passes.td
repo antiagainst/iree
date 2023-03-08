@@ -74,6 +74,16 @@ def FormDispatchRegions :
   ];
 }
 
+def ConvertStandaloneExtractInsertSlices :
+    InterfacePass<"iree-flow-convert-standalone-extract-insert-slices", "mlir::FunctionOpInterface"> {
+  let summary = "Convert standalone tensor extract/insert slice ops into flow tensor ops or wrap in flow.dispath.region ops";
+  let constructor = "mlir::iree_compiler::IREE::Flow::createConvertStandaloneExtractInsertSlicesPass()";
+  let options = [
+    Option<"generateWorkloadRegion", "genereate-workload-region", "bool",
+           /*default=*/"true", "Generate workload regions of WorkgroupOps">,
+  ];
+}
+
 def FormDispatchWorkgroups :
     InterfacePass<"iree-flow-form-dispatch-workgroups", "mlir::FunctionOpInterface"> {
   let summary = "Form Dispatch Workgroup Ops from Dispatch Region Ops that contain Linalg on tensor ops by tiling and distribution.";
