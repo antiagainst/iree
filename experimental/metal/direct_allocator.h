@@ -9,6 +9,7 @@
 
 #import <Metal/Metal.h>
 
+#include "experimental/metal/api.h"
 #include "iree/base/api.h"
 #include "iree/hal/api.h"
 
@@ -20,6 +21,7 @@ extern "C" {
 // without caching or suballocation.
 iree_status_t iree_hal_metal_allocator_create(
     iree_hal_device_t* base_device, id<MTLDevice> device,
+    iree_hal_metal_resource_hazard_tracking_mode_t resource_tracking_mode,
     iree_allocator_t host_allocator, iree_hal_allocator_t** out_allocator);
 
 #ifdef __cplusplus
