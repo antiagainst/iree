@@ -17,6 +17,8 @@
 
 IREE_FLAG(bool, metal_serial_command_dispatch, false,
           "Run all commands in command encoder sequentially");
+IREE_FLAG(bool, metal_command_buffer_retain_resources, false,
+          "Create command buffer to maintain strong references to resources");
 IREE_FLAG(bool, metal_resource_hazard_tracking, false,
           "Enable hazard tracking for resources");
 
@@ -57,6 +59,10 @@ static iree_status_t iree_hal_metal_driver_factory_try_create(
       FLAG_metal_serial_command_dispatch
           ? IREE_HAL_METAL_COMMAND_DISPATCH_TYPE_SERIAL
           : IREE_HAL_METAL_COMMAND_DISPATCH_TYPE_CONCURRENT;
+  device_params.command_buffer_resource_reference_mode =
+      FLAG_metal_command_buffer_retain_resources
+          ? IREE_HAL_METAL_COMMAND_BUFFER_RESOURCE_REFERENCE_MODE_RETAINED
+          : IREE_HAL_METAL_COMMAND_BUFFER_RESOURCE_REFERENCE_MODE_UNRETAINED;
   device_params.resource_hazard_tracking_mode =
       FLAG_metal_resource_hazard_tracking
           ? IREE_HAL_METAL_RESOURCE_HAZARD_TRACKING_MODE_TRACKED
