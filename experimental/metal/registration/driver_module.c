@@ -17,6 +17,8 @@
 
 IREE_FLAG(bool, metal_serial_command_dispatch, false,
           "Run all commands in command encoder sequentially");
+IREE_FLAG(bool, metal_command_buffer_retain_resources, false,
+          "Create command buffer to maintain strong references to resources");
 IREE_FLAG(bool, metal_resource_hazard_tracking, false,
           "Enable hazard tracking for resources");
 
