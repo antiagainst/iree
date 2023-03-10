@@ -27,6 +27,14 @@ typedef enum iree_hal_metal_command_dispatch_type_e {
   IREE_HAL_METAL_COMMAND_DISPATCH_TYPE_SERIAL = 1,
 } iree_hal_metal_command_dispatch_type_t;
 
+typedef enum iree_hal_metal_command_buffer_resource_reference_mode_e {
+  // Letting the command buffer to not maintain strong references to used
+  // resources.
+  IREE_HAL_METAL_COMMAND_BUFFER_RESOURCE_REFERENCE_MODE_UNRETAINED = 0,
+  // Letting the command buffer to maintain strong references to used resources.
+  IREE_HAL_METAL_COMMAND_BUFFER_RESOURCE_REFERENCE_MODE_RETAINED = 1,
+} iree_hal_metal_command_buffer_resource_reference_mode_t;
+
 typedef enum iree_hal_metal_resource_hazard_tracking_mode_e {
   // Letting the app to prevent hazards when modifying this object's contents.
   IREE_HAL_METAL_RESOURCE_HAZARD_TRACKING_MODE_UNTRACKED = 0,
@@ -50,6 +58,12 @@ typedef struct iree_hal_metal_device_params_t {
   // itself. Though being able to specify serial command dispatching helps
   // debugging in certain cases.
   iree_hal_metal_command_dispatch_type_t command_dispatch_type;
+
+  // Resource reference mode in command buffers.
+  // Normally we track resource lifetime in IREE explicitly, so we don't need to
+  // incur Metal runtime overhead to do that. But good for debugging purposes.
+  iree_hal_metal_command_buffer_resource_reference_mode_t
+      command_buffer_resource_reference_mode;
 
   // Resource hazard tracking mode.
   // IREE is following explicit GPU API model and tracks resource dependency by
