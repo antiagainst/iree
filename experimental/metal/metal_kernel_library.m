@@ -6,6 +6,7 @@
 
 #include "experimental/metal/metal_kernel_library.h"
 
+#include <experimental/metal/pipeline_layout.h>
 #include <stddef.h>
 
 #include "iree/base/api.h"
@@ -224,6 +225,36 @@ iree_status_t iree_hal_metal_load_mtllib(const char* source_lib, size_t length,
   return iree_ok_status();
 }
 
+// Creates an argument encoder and its backing argument buffer for the given kernel |function|'s
+// |buffer_index|. The argument encoder will be set to encode into the newly created argument
+// buffer. Callers are expected to release both the argument encoder and buffer.
+static iree_status_t iree_hal_metal_create_argument_encoder(id<MTLDevice> device,
+                                                            id<MTLFunction> function,
+                                                            uint32_t buffer_index,
+                                                            id<MTLArgumentEncoder>* out_encoder,
+                                                            id<MTLBuffer>* out_buffer) {
+  id<MTLArgumentEncoder> argument_encoder =
+      [function newArgumentEncoderWithBufferIndex:buffer_index];  // +1
+  if (!argument_encoder) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT, "invalid argument buffer index #%u",
+                            buffer_index);
+  }
+
+  __block id<MTLBuffer> argument_buffer =
+      [device newBufferWithLength:argument_encoder.encodedLength
+                          options:MTLResourceStorageModeShared];  // +1
+  if (!argument_buffer) {
+    return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
+                            "failed to create argument buffer with size = %ld bytes",
+                            argument_encoder.encodedLength);
+  }
+
+  [argument_encoder setArgumentBuffer:argument_buffer offset:0];
+  *out_encoder = argument_encoder;
+  *out_buffer = argument_buffer;
+  return iree_ok_status();
+}
+
 iree_status_t iree_hal_metal_kernel_library_create(
     iree_allocator_t host_allocator, id<MTLDevice> device,
     const iree_hal_executable_params_t* executable_params, iree_hal_executable_t** out_executable) {
@@ -307,6 +338,7 @@ iree_status_t iree_hal_metal_kernel_library_create(
 
       // Package required parameters for kernel launches for each entry point.
       iree_hal_metal_kernel_params_t* params = &executable->entry_points[i];
+
       params->library = library;
       params->function = function;
       params->pso = pso;
@@ -315,6 +347,20 @@ iree_status_t iree_hal_metal_kernel_library_create(
       params->threadgroup_size[2] = threadgroup_sizes_vec[i].z;
       params->layout = executable_params->pipeline_layouts[i];
       iree_hal_pipeline_layout_retain(params->layout);
+
+      // Create argument buffers and encoders for later command buffer usage.
+      for (int i = 0; i < IREE_HAL_METAL_MAX_ARGUMENT_BUFFER_COUNT; ++i) {
+        if (iree_hal_metal_pipeline_layout_descriptor_set_layout(params->layout, i)) {
+          status = iree_hal_metal_create_argument_encoder(device, params->function, i,
+                                                          &params->argument_encoders[i],
+                                                          &params->argument_buffers[i]);
+          if (!iree_status_is_ok(status)) break;
+        } else {
+          params->argument_buffers[i] = nil;
+          params->argument_encoders[i] = nil;
+        }
+      }
+      if (!iree_status_is_ok(status)) break;
 
       // Stash the entry point name in the string table for use when tracing.
       IREE_TRACE({
@@ -344,6 +390,10 @@ static void iree_hal_metal_kernel_library_destroy(iree_hal_executable_t* base_ex
 
   for (iree_host_size_t i = 0; i < executable->entry_point_count; ++i) {
     iree_hal_metal_kernel_params_t* entry_point = &executable->entry_points[i];
+    for (int i = 0; i < IREE_HAL_METAL_MAX_ARGUMENT_BUFFER_COUNT; ++i) {
+      if (entry_point->argument_encoders[i]) [entry_point->argument_encoders[i] release];  // -1
+      if (entry_point->argument_buffers[i]) [entry_point->argument_buffers[i] release];    // -1
+    }
     [entry_point->pso release];
     [entry_point->function release];
     [entry_point->library release];

@@ -723,40 +723,6 @@ static inline MTLResourceUsage iree_hal_metal_get_metal_resource_usage(
   return usage;
 }
 
-// Creates an argument encoder and its backing argument buffer for the given kernel |function|'s
-// |buffer_index|. The argument encoder will be set to encode into the newly created argument
-// buffer. Callers are expected to release both the argument encoder and buffer.
-static iree_status_t iree_hal_metal_create_argument_encoder(
-    id<MTLDevice> device, id<MTLCommandBuffer> command_buffer, id<MTLFunction> function,
-    uint32_t buffer_index, id<MTLArgumentEncoder>* out_encoder, id<MTLBuffer>* out_buffer) {
-  id<MTLArgumentEncoder> argument_encoder =
-      [function newArgumentEncoderWithBufferIndex:buffer_index];  // +1
-  if (!argument_encoder) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT, "invalid argument buffer index #%u",
-                            buffer_index);
-  }
-
-  __block id<MTLBuffer> argument_buffer =
-      [device newBufferWithLength:argument_encoder.encodedLength
-                          options:MTLResourceStorageModeShared];  // +1
-  if (!argument_buffer) {
-    return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
-                            "failed to create argument buffer with size = %ld bytes",
-                            argument_encoder.encodedLength);
-  }
-
-  // The arugment encoder and buffer can be deleted once the command buffer completes.
-  [command_buffer addCompletedHandler:^(id<MTLCommandBuffer> cmdbuf) {
-    [argument_buffer release];   // -1
-    [argument_encoder release];  // -1
-  }];
-
-  [argument_encoder setArgumentBuffer:argument_buffer offset:0];
-  *out_encoder = argument_encoder;
-  *out_buffer = argument_buffer;
-  return iree_ok_status();
-}
-
 // Prepares kernels and argument buffers needed for kernel dispatches.
 static iree_status_t iree_hal_metal_command_buffer_prepare_dispatch(
     iree_hal_command_buffer_t* base_command_buffer, iree_hal_executable_t* executable,
@@ -787,12 +753,10 @@ static iree_status_t iree_hal_metal_command_buffer_prepare_dispatch(
     // Build argument encoder and argument buffer for the current descriptor set.
     uint32_t current_set = descriptors[i].set;
 
-    id<MTLArgumentEncoder> argument_encoder;
-    id<MTLBuffer> argument_buffer;
-    IREE_RETURN_AND_END_ZONE_IF_ERROR(
-        z0, iree_hal_metal_create_argument_encoder(
-                command_buffer->command_buffer.device, command_buffer->command_buffer,
-                kernel_params->function, current_set, &argument_encoder, &argument_buffer));
+    id<MTLArgumentEncoder> argument_encoder = kernel_params->argument_encoders[current_set];
+    id<MTLBuffer> argument_buffer = kernel_params->argument_buffers[current_set];
+    IREE_ASSERT_NE(argument_encoder, nil);
+    IREE_ASSERT_NE(argument_buffer, nil);
 
     iree_hal_descriptor_set_layout_t* set_layout =
         iree_hal_metal_pipeline_layout_descriptor_set_layout(
