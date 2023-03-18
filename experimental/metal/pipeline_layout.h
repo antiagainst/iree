@@ -14,6 +14,12 @@
 extern "C" {
 #endif  // __cplusplus
 
+// The maximal argument buffer count.
+//
+// This depends on the general descriptor set planning in IREE and should adjust
+// with it.
+#define IREE_HAL_METAL_MAX_ARGUMENT_BUFFER_COUNT 3
+
 // The max number of total binding slots across all descriptor sets by the Metal
 // HAL implementation.
 //
@@ -29,7 +35,8 @@ extern "C" {
 // This depends on the general descriptor set planning in IREE and should adjust
 // with it. Note that it also needs to be consistent with the compiler side when
 // setting up resource location attributes during cross compiling SPIR-V to MSL.
-#define IREE_HAL_METAL_PUSH_CONSTANT_BUFFER_INDEX 3
+#define IREE_HAL_METAL_PUSH_CONSTANT_BUFFER_INDEX \
+  IREE_HAL_METAL_MAX_ARGUMENT_BUFFER_COUNT
 
 // The max number of push constants supported by the Metal HAL implementation.
 #define IREE_HAL_METAL_MAX_PUSH_CONSTANT_COUNT 64
