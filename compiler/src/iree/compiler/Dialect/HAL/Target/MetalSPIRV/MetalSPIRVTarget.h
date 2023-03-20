@@ -14,6 +14,8 @@ namespace iree_compiler {
 namespace IREE {
 namespace HAL {
 
+enum class MetalTargetPlatform { macOS, iOS, iOSSimulator };
+
 // Registers the Metal/SPIR-V backends.
 void registerMetalSPIRVTargetBackends();
 
