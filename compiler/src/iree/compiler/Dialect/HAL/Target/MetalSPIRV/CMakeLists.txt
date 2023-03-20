@@ -45,12 +45,23 @@ iree_cc_library(
 
 iree_cc_library(
   NAME
+    MetalTargetPlatform
+  HDRS
+    "MetalTargetPlatform.h"
+  DEPS
+
+  PUBLIC
+)
+
+iree_cc_library(
+  NAME
     SPIRVToMSL
   HDRS
     "SPIRVToMSL.h"
   SRCS
     "SPIRVToMSL.cpp"
   DEPS
+    ::MetalTargetPlatform
     LLVMSupport
     MLIRSupport
     spirv-cross-msl
@@ -65,6 +76,7 @@ iree_cc_library(
   SRCS
     "MSLToMetalLib.cpp"
   DEPS
+    ::MetalTargetPlatform
     LLVMSupport
     MLIRSupport
   PUBLIC
