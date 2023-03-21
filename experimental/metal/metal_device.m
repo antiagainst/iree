@@ -44,12 +44,12 @@ typedef struct iree_hal_metal_device_t {
 
   iree_hal_metal_builtin_executable_t* builtin_executable;
 
-  // A dispatch queue and associated event listener for running Objective-C blocks to singal
-  // semaphores and wake up threads.
-  dispatch_queue_t semaphore_notification_queue;
+  // A dispatch queue and associated event listener for running Objective-C blocks containing tasks
+  // like singaling semaphores and walking up threads.
+  dispatch_queue_t dispatch_queue;
   MTLSharedEventListener* event_listener;
 
-  MTLCaptureManager *capture_manager;
+  MTLCaptureManager* capture_manager;
 } iree_hal_metal_device_t;
 
 static const iree_hal_device_vtable_t iree_hal_metal_device_vtable;
@@ -115,10 +115,9 @@ static iree_status_t iree_hal_metal_device_create_internal(
     device->builtin_executable = builtin_executable;
     dispatch_queue_attr_t queue_attr = dispatch_queue_attr_make_with_qos_class(
         DISPATCH_QUEUE_SERIAL, QOS_CLASS_USER_INITIATED, /*relative_priority=*/0);
-    device->semaphore_notification_queue =
-        dispatch_queue_create("dev.iree.queue.metal", queue_attr);
-    device->event_listener = [[MTLSharedEventListener alloc]
-        initWithDispatchQueue:device->semaphore_notification_queue];  // +1
+    device->dispatch_queue = dispatch_queue_create("dev.iree.queue.metal", queue_attr);
+    device->event_listener =
+        [[MTLSharedEventListener alloc] initWithDispatchQueue:device->dispatch_queue];  // +1
     device->capture_manager = NULL;
 
     *out_device = (iree_hal_device_t*)device;
@@ -146,7 +145,7 @@ static void iree_hal_metal_device_destroy(iree_hal_device_t* base_device) {
   IREE_TRACE_ZONE_BEGIN(z0);
 
   [device->event_listener release];  // -1
-  dispatch_release(device->semaphore_notification_queue);
+  dispatch_release(device->dispatch_queue);
 
   iree_hal_metal_builtin_executable_destroy(device->builtin_executable);
 
@@ -281,18 +280,138 @@ static iree_hal_semaphore_compatibility_t iree_hal_metal_device_query_semaphore_
   return IREE_HAL_SEMAPHORE_COMPATIBILITY_HOST_ONLY;
 }
 
+static iree_status_t iree_hal_metal_copy_semaphore_list(iree_allocator_t host_allocator,
+                                                        const iree_hal_semaphore_list_t source_list,
+                                                        iree_hal_semaphore_list_t* target_list) {
+  target_list->count = source_list.count;
+  target_list->semaphores = NULL;
+  target_list->payload_values = NULL;
+  if (source_list.count == 0) return iree_ok_status();
+
+  iree_hal_semaphore_t** copied_semaphores;
+  iree_host_size_t size = sizeof(iree_hal_semaphore_t*) * source_list.count;
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, iree_allocator_malloc(host_allocator, size, (void**)&copied_semaphores));
+  memcpy(copied_semaphores, source_list.semaphores, size);
+
+  uint64_t* copied_values;
+  size = sizeof(uint64_t) * source_list.count;
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, iree_allocator_malloc(host_allocator, size, (void**)&copied_values));
+  memcpy(copied_values, source_list.payload_values, size);
+
+  target_list->semaphores = copied_semaphores;
+  target_list->payload_values = copied_values;
+  return iree_ok_status();
+}
+
+static void iree_hal_metal_free_semaphore_list(iree_allocator_t host_allocator,
+                                               iree_hal_semaphore_list_t list) {
+  iree_allocator_free(host_allocator, list.semaphores);
+  iree_allocator_free(host_allocator, list.payload_values);
+}
+
 static iree_status_t iree_hal_metal_device_queue_alloca(
     iree_hal_device_t* base_device, iree_hal_queue_affinity_t queue_affinity,
     const iree_hal_semaphore_list_t wait_semaphore_list,
     const iree_hal_semaphore_list_t signal_semaphore_list, iree_hal_allocator_pool_t pool,
     iree_hal_buffer_params_t params, iree_device_size_t allocation_size,
     iree_hal_buffer_t** IREE_RESTRICT out_buffer) {
-  // TODO(benvanik): queue-ordered allocations.
-  IREE_RETURN_IF_ERROR(iree_hal_semaphore_list_wait(wait_semaphore_list, iree_infinite_timeout()));
-  IREE_RETURN_IF_ERROR(iree_hal_allocator_allocate_buffer(
-      iree_hal_device_allocator(base_device), params, allocation_size, iree_const_byte_span_empty(),
-      out_buffer));
-  IREE_RETURN_IF_ERROR(iree_hal_semaphore_list_signal(signal_semaphore_list));
+  printf("[metal]  entering iree_hal_metal_device_queue_alloca\n");
+  iree_hal_metal_device_t* device = iree_hal_metal_device_cast(base_device);
+  IREE_TRACE_ZONE_BEGIN(z0);
+
+  // Copy the semaphore lists to heap--we will need to access them later.
+  iree_hal_semaphore_list_t saved_wait_list;
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, iree_hal_metal_copy_semaphore_list(device->host_allocator, wait_semaphore_list,
+                                             &saved_wait_list));
+  iree_hal_semaphore_list_t saved_signal_list;
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, iree_hal_metal_copy_semaphore_list(device->host_allocator, signal_semaphore_list,
+                                             &saved_signal_list));
+  printf("[metal]  copied wait/signal semaphores\n");
+
+  // IREE will free resources once their refcounts become zero on host. However, there are work
+  // happening async still needing access. So make sure we retain all semaphores until later.
+  for (iree_host_size_t i = 0; i < saved_wait_list.count; ++i) {
+    iree_hal_semaphore_retain(saved_wait_list.semaphores[i]);  // +1
+  }
+  for (iree_host_size_t i = 0; i < saved_signal_list.count; ++i) {
+    iree_hal_semaphore_retain(saved_signal_list.semaphores[i]);  // +1
+  }
+  printf("[metal]  retained wait/signal semaphores\n");
+
+  // TODO(antiagainst): handle errors from async dispatch.
+  void (^async_alloc_buffer)(void) = ^{
+    printf("[metal]  entering async_alloc_buffer\n");
+    printf("[metal]  allocation_size: %lu\n", allocation_size);
+    iree_hal_allocator_allocate_buffer(device->device_allocator, params, allocation_size,
+                                       iree_const_byte_span_empty(), out_buffer);
+    printf("[metal]  allocated buffer\n");
+    printf("[metal]  signal semaphore count = %lu\n", saved_signal_list.count);
+    for (int i = 0; i < saved_wait_list.count; ++i)
+      printf("[metal]    %p = %llu\n", saved_signal_list.semaphores[i],
+             saved_signal_list.payload_values[i]);
+    iree_hal_semaphore_list_signal(saved_signal_list);
+    printf("[metal]  signaled semaphores\n");
+
+    for (iree_host_size_t i = 0; i < saved_wait_list.count; ++i) {
+      iree_hal_semaphore_release(saved_wait_list.semaphores[i]);  // -1
+    }
+    for (iree_host_size_t i = 0; i < saved_signal_list.count; ++i) {
+      iree_hal_semaphore_release(saved_signal_list.semaphores[i]);  // -1
+    }
+    printf("[metal]  released semaphores\n");
+    iree_hal_metal_free_semaphore_list(device->host_allocator, saved_wait_list);
+    iree_hal_metal_free_semaphore_list(device->host_allocator, saved_signal_list);
+    printf("[metal]  leaving async_alloc_buffer\n");
+  };
+
+  if (wait_semaphore_list.count == 0) {
+    printf("[metal]  leaving iree_hal_metal_device_queue_alloca - no wait\n");
+    dispatch_async(device->dispatch_queue, async_alloc_buffer);
+    IREE_TRACE_ZONE_END(z0);
+    return iree_ok_status();
+  }
+
+  if (wait_semaphore_list.count == 1) {
+    printf("[metal]  leaving iree_hal_metal_device_queue_alloca - wait 1 semaphore\n");
+    id<MTLSharedEvent> handle = iree_hal_metal_shared_event_handle(saved_wait_list.semaphores[0]);
+    printf("[metal]    %p (id=%p)\n", saved_wait_list.semaphores[0], handle);
+    [handle notifyListener:device->event_listener
+                   atValue:saved_wait_list.payload_values[0]
+                     block:^(id<MTLSharedEvent> se, uint64_t v) {
+                       async_alloc_buffer();
+                     }];
+    IREE_TRACE_ZONE_END(z0);
+    return iree_ok_status();
+  }
+
+  printf("[metal]  leaving iree_hal_metal_device_queue_alloca - wait >1 semaphores\n");
+  // Create an atomic to count how many semaphores have signaled. Mark it as `__block` so different
+  // threads are sharing the same data via reference.
+  __block iree_atomic_int32_t wait_count;
+  iree_atomic_store_int32(&wait_count, 0, iree_memory_order_release);
+  // The total count we are expecting to see.
+  iree_host_size_t total_count = wait_semaphore_list.count;
+
+  for (iree_host_size_t i = 0; i < saved_wait_list.count; ++i) {
+    id<MTLSharedEvent> handle = iree_hal_metal_shared_event_handle(saved_wait_list.semaphores[i]);
+    printf("[metal]    %p (id=%p)\n", saved_wait_list.semaphores[i], handle);
+    [handle
+        notifyListener:device->event_listener
+               atValue:saved_wait_list.payload_values[i]
+                 block:^(id<MTLSharedEvent> se, uint64_t v) {
+                   // The last signaled semaphore send out the notification. Atomic fetch add
+                   // returns the old value, so need to +1.
+                   if (iree_atomic_fetch_add_int32(&wait_count, 1, iree_memory_order_release) + 1 ==
+                       total_count) {
+                     async_alloc_buffer();
+                   }
+                 }];
+  }
+  IREE_TRACE_ZONE_END(z0);
   return iree_ok_status();
 }
 
