@@ -127,6 +127,24 @@ static iree_status_t iree_hal_metal_kernel_library_flatbuffer_verify(
   return iree_ok_status();
 }
 
+// Returns an invalid argument status with proper Metal NSError annotations during compute pipeline
+// creation.
+static iree_status_t iree_hal_metal_get_invalid_kernel_status(const char* iree_error_template,
+                                                              const char* metal_error_template,
+                                                              NSError* ns_error,
+                                                              const char* entry_point,
+                                                              const char* shader_source) {
+  iree_status_t status = iree_make_status(IREE_STATUS_INVALID_ARGUMENT, iree_error_template);
+  const char* ns_c_error = [ns_error.localizedDescription
+      cStringUsingEncoding:[NSString defaultCStringEncoding]];  // autoreleased
+  status = iree_status_annotate_f(status, metal_error_template, ns_c_error);
+  if (shader_source) {
+    return iree_status_annotate_f(status, "for entry point '%s' in MSL source:\n%s\n", entry_point,
+                                  shader_source);
+  }
+  return iree_status_annotate_f(status, "for entry point '%s' in MTLLibrary\n", entry_point);
+}
+
 iree_status_t iree_hal_metal_compile_msl(const char* source_code, const char* entry_point,
                                          id<MTLDevice> device, MTLCompileOptions* compile_options,
                                          id<MTLLibrary>* library, id<MTLFunction>* function,
@@ -141,12 +159,9 @@ iree_status_t iree_hal_metal_compile_msl(const char* source_code, const char* en
                                     options:compile_options
                                       error:&error];  // +1
     if (*library == nil) {
-#ifndef NDEBUG
-      NSLog(@"Failed to create MTLLibrary: %@", error);
-      NSLog(@"For entry point '%s' in MSL source:\n%@", entry_point, shader_source);
-#endif
-      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                              "failed to create MTLLibrary from shader source");
+      return iree_hal_metal_get_invalid_kernel_status(
+          "failed to create MTLLibrary from shader source",
+          "when creating MTLLibrary with NSError: %s", error, entry_point, source_code);
     }
 
     NSString* function_name =
@@ -154,24 +169,19 @@ iree_status_t iree_hal_metal_compile_msl(const char* source_code, const char* en
                            encoding:[NSString defaultCStringEncoding]];  // autoreleased
     *function = [*library newFunctionWithName:function_name];            // +1
     if (*function == nil) {
-#ifndef NDEBUG
-      NSLog(@"Failed to create MTLFunction '%@': %@", function_name, error);
-      NSLog(@"For entry point '%s' in MSL source:\n%@", entry_point, shader_source);
-#endif
       [*library release];
-      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                              "cannot find entry point '%s' in shader source", entry_point);
+      return iree_hal_metal_get_invalid_kernel_status("cannot find entry point in shader source",
+                                                      "when creating MTLFunction with NSError: %s",
+                                                      error, entry_point, source_code);
     }
 
     *pso = [device newComputePipelineStateWithFunction:*function error:&error];  // +1
     if (*pso == nil) {
-#ifndef NDEBUG
-      NSLog(@"Failed to create MTLComputePipelineState: %@", error);
-      NSLog(@"For entry point '%s' in MSL source:\n%@", entry_point, shader_source);
-#endif
       [*function release];
       [*library release];
-      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT, "invalid MSL source");
+      return iree_hal_metal_get_invalid_kernel_status(
+          "invalid shader source", "when creating MTLComputePipelineState with NSError: %s", error,
+          entry_point, source_code);
     }
   }
   return iree_ok_status();
@@ -188,12 +198,9 @@ iree_status_t iree_hal_metal_load_mtllib(const char* source_lib, size_t length,
         dispatch_data_create(source_lib, length, /*queue=*/NULL, DISPATCH_DATA_DESTRUCTOR_DEFAULT);
     *library = [device newLibraryWithData:data error:&error];  // +1
     if (*library == nil) {
-#ifndef NDEBUG
-      NSLog(@"Failed to create MTLLibrary: %@", error);
-      NSLog(@"For entry point '%s' in Metal library\n", entry_point);
-#endif
-      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                              "failed to create MTLLibrary from shader source");
+      return iree_hal_metal_get_invalid_kernel_status(
+          "failed to create MTLLibrary from shader source",
+          "when creating MTLLibrary with NSError: %s", error, entry_point, NULL);
     }
 
     NSString* function_name =
@@ -201,24 +208,19 @@ iree_status_t iree_hal_metal_load_mtllib(const char* source_lib, size_t length,
                            encoding:[NSString defaultCStringEncoding]];  // autoreleased
     *function = [*library newFunctionWithName:function_name];            // +1
     if (*function == nil) {
-#ifndef NDEBUG
-      NSLog(@"Failed to create MTLFunction '%@': %@", function_name, error);
-      NSLog(@"For entry point '%s' in Metal library\n", entry_point);
-#endif
       [*library release];
-      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                              "cannot find entry point '%s' in shader source", entry_point);
+      return iree_hal_metal_get_invalid_kernel_status("cannot find entry point in shader source",
+                                                      "when creating MTLFunction with NSError: %s",
+                                                      error, entry_point, NULL);
     }
 
     *pso = [device newComputePipelineStateWithFunction:*function error:&error];  // +1
     if (*pso == nil) {
-#ifndef NDEBUG
-      NSLog(@"Failed to create MTLComputePipelineState: %@", error);
-      NSLog(@"For entry point '%s' in Metal library\n", entry_point);
-#endif
       [*function release];
       [*library release];
-      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT, "invalid MSL source");
+      return iree_hal_metal_get_invalid_kernel_status(
+          "invalid shader source", "when creating MTLComputePipelineState with NSError: %s", error,
+          entry_point, NULL);
     }
   }
   return iree_ok_status();
