@@ -96,8 +96,14 @@ static void populateIreeNarrowTypeEmulationPatterns(
 // Pass Definition
 //===----------------------------------------------------------------------===//
 
-struct EmulateNarrowTypePass
+class EmulateNarrowTypePass
     : public EmulateNarrowTypeBase<EmulateNarrowTypePass> {
+public:
+  explicit EmulateNarrowTypePass(unsigned bw) : targetBitwidth(bw) {
+    assert(llvm::isPowerOf2_32(bw) && "only power of 2 bitwidth is supported "
+                                      "for narrow type load/store emulation");
+  }
+
   void getDependentDialects(DialectRegistry &registry) const override {
     registry.insert<arith::ArithDialect, func::FuncDialect,
                     memref::MemRefDialect, vector::VectorDialect,
@@ -105,16 +111,9 @@ struct EmulateNarrowTypePass
   }
 
   void runOnOperation() override {
-    // The number of bits used in a load/store op.
-    constexpr unsigned kLoadStoreEmulateBitwidth = 8;
-    static_assert(
-        llvm::isPowerOf2_32(kLoadStoreEmulateBitwidth) &&
-        "only power of 2 is supported for narrow type load/store emulation");
-
     MLIRContext *ctx = &getContext();
 
-    arith::NarrowTypeEmulationConverter typeConverter(
-        kLoadStoreEmulateBitwidth);
+    arith::NarrowTypeEmulationConverter typeConverter(targetBitwidth);
     memref::populateMemRefNarrowTypeEmulationConversions(typeConverter);
 
     ConversionTarget target(*ctx);
@@ -140,6 +139,9 @@ struct EmulateNarrowTypePass
                                       std::move(patterns))))
       return signalPassFailure();
   }
+
+private:
+  unsigned targetBitwidth;
 };
 } // namespace
 
@@ -147,8 +149,9 @@ struct EmulateNarrowTypePass
 // Public interface
 //===----------------------------------------------------------------------===//
 
-std::unique_ptr<OperationPass<ModuleOp>> createEmulateNarrowTypePass() {
-  return std::make_unique<EmulateNarrowTypePass>();
+std::unique_ptr<OperationPass<ModuleOp>>
+createEmulateNarrowTypePass(unsigned targetBitwidth) {
+  return std::make_unique<EmulateNarrowTypePass>(targetBitwidth);
 }
 
 } // namespace iree_compiler

@@ -229,8 +229,6 @@ static void addSPIRVLoweringPasses(OpPassManager &pm, bool enableFastMath) {
   pm.addPass(createCanonicalizerPass());
   pm.addPass(createCSEPass());
 
-  pm.addPass(createLowerAffinePass());
-
   // Lower ApplyScale before the i64 Emulation Pass so that new 64-bit ops are
   // also emulated if not supported by the target.
   pm.addPass(tosa::createTosaToArith(/*includeApplyRescale=*/true,
@@ -242,6 +240,11 @@ static void addSPIRVLoweringPasses(OpPassManager &pm, bool enableFastMath) {
   pm.addPass(createSPIRVEmulateI64Pass());
   pm.addPass(createConvertBf16ArithToF32Pass());
   pm.addPass(createConvertBf16ToUInt16BuffersPass());
+  pm.addPass(createEmulateNarrowTypePass(/*targetBitwidth=*/32));
+  pm.addPass(createCanonicalizerPass());
+  pm.addPass(createCSEPass());
+
+  pm.addPass(createLowerAffinePass());
   pm.addPass(createCanonicalizerPass());
   pm.addPass(createCSEPass());
 
