@@ -36,6 +36,10 @@ void addSPIRVMatmulPromoteVectorizePassPipeline(OpPassManager &pm,
                                                 unsigned pipelineDepth,
                                                 unsigned storeStage);
 
+/// Pass pipeline to lower IREE HAL executables by promoting vector operands to
+/// shared memory and then perform subgroup reduction.
+void addSPIRVMatvecPromoteSubgroupReducePassPipeline(OpPassManager &pm);
+
 /// Pass pipeline to lower IREE HAL executables by tiling and distributing
 /// reduction to workgroups and then subgroups.
 void addSPIRVSubgroupReducePassPipeline(OpPassManager &pm);
@@ -122,6 +126,8 @@ createSPIRVTileAndPromotePass(bool promoteCMatrix = false,
 /// Pass to tile Linalg ops with tensor semantics to invocations.
 std::unique_ptr<OperationPass<func::FuncOp>> createSPIRVTilePass();
 
+std::unique_ptr<OperationPass<func::FuncOp>> createSPIRVTileGEMVPass();
+
 /// Pass to tile Linalg ops with buffer semantics suitable for lowering to
 /// SPIR-V cooperative ops.
 std::unique_ptr<OperationPass<func::FuncOp>>
@@ -138,6 +144,8 @@ std::unique_ptr<OperationPass<ModuleOp>> createSPIRVVectorizeLoadStore();
 
 /// Pass to vectorize Linalg ops with buffer semantics.
 std::unique_ptr<OperationPass<func::FuncOp>> createSPIRVVectorizePass();
+
+std::unique_ptr<OperationPass<func::FuncOp>> createSPIRVVectorizeGEMVPass();
 
 /// Pass to do vectorization suitable for lowering to SPIR-V cooperative ops.
 std::unique_ptr<OperationPass<func::FuncOp>>

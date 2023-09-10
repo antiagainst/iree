@@ -103,6 +103,11 @@ def SPIRVTileAndPromote : Pass<"iree-spirv-tile-and-promote", "func::FuncOp"> {
   ];
 }
 
+def SPIRVTileGEMV : Pass<"iree-spirv-tile-gemv", "func::FuncOp"> {
+  let summary = "Tile GEMV-like Linalg ops to subgroups and invocations";
+  let constructor = "mlir::iree_compiler::createSPIRVTileGEMVPass()";
+}
+
 def SPIRVTileToCooperativeOps : Pass<
     "iree-spirv-tile-to-cooperative-ops", "func::FuncOp"> {
   let summary = "Tile Linalg ops with buffer semantics to subgroups and "
@@ -115,6 +120,11 @@ def SPIRVTileToCooperativeOps : Pass<
 def SPIRVVectorize : Pass<"iree-spirv-vectorize", "func::FuncOp"> {
   let summary = "Vectorize Linalg ops with buffer semantics";
   let constructor = "mlir::iree_compiler::createSPIRVVectorizePass()";
+}
+
+def SPIRVVectorizeGEMV : Pass<"iree-spirv-vectorize-gemv", "func::FuncOp"> {
+  let summary = "Vectorize Linalg ops with tensor semantics for GEMV";
+  let constructor = "mlir::iree_compiler::createSPIRVVectorizeGEMVPass()";
 }
 
 def SPIRVVectorizeLoadStore :

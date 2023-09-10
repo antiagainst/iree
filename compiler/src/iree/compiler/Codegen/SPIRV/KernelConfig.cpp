@@ -1299,7 +1299,7 @@ static LogicalResult setReductionConfig(const spirv::TargetEnv &targetEnv,
   if (numSubgroupsUsed > subgroupSize) {
     return failure();
   }
-  std::array<int64_t, 3> workgroupSize = {groupSize, 1, 1};
+  std::array<int64_t, 3> workgroupSize = {subgroupSize, 4, 1};
   // Tile all the parallel dimension to 1.
   SmallVector<unsigned> partitionedLoops =
       cast<PartitionableLoopsInterface>(op.getOperation())
@@ -1308,6 +1308,7 @@ static LogicalResult setReductionConfig(const spirv::TargetEnv &targetEnv,
   partitionedLoopsSet.insert(partitionedLoops.begin(), partitionedLoops.end());
   size_t numLoops = partitionedLoops.empty() ? 0 : partitionedLoops.back() + 1;
   SmallVector<int64_t> workgroupTileSizes(numLoops, 1);
+  workgroupTileSizes = {4};
 
   SmallVector<int64_t> reductionTileSizes(op.getNumLoops(), 0);
   int64_t remaingGroupSize = groupSize;
@@ -1323,22 +1324,25 @@ static LogicalResult setReductionConfig(const spirv::TargetEnv &targetEnv,
       reductionTileSizes[dim] *= vectorSize;
     remaingGroupSize /= size.getSExtValue();
   }
+  reductionTileSizes = {0, 1, 8};
 
   TileSizesListType tileSizes;
   tileSizes.emplace_back(std::move(workgroupTileSizes)); // Workgroup level
   tileSizes.emplace_back(std::move(reductionTileSizes)); // reduction level
   if (failed(setOpConfigAndEntryPointFnTranslation(
           op->getParentOfType<func::FuncOp>(), op, tileSizes,
-          CodeGenPipeline::SPIRVSubgroupReduce, workgroupSize))) {
+          CodeGenPipeline::SPIRVMatvecPromoteSubgroupReduce, workgroupSize))) {
     return failure();
   }
 
   // Set lowering configuration to drive tiling for other Linalg ops too---the
   // pipeline expects it.
+  /*
   funcOp.walk([&](linalg::LinalgOp op) {
     setLoweringConfig(
         op, IREE::Codegen::LoweringConfigAttr::get(op.getContext(), tileSizes));
   });
+  */
   return success();
 }
 

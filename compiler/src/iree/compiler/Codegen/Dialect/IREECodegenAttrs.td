@@ -59,8 +59,10 @@ def SPIRV_MatmulPromoteVectorize
     : I32EnumAttrCase<"SPIRVMatmulPromoteVectorize", 204>;
 def SPIRV_CooperativeMatrixVectorize
     : I32EnumAttrCase<"SPIRVCooperativeMatrixVectorize", 205>;
+def SPIRV_MatvecPromoteSubgroupReduce
+    : I32EnumAttrCase<"SPIRVMatvecPromoteSubgroupReduce", 206>;
 def SPIRV_WinogradVectorize
-    : I32EnumAttrCase<"SPIRVWinogradVectorize", 206>;
+    : I32EnumAttrCase<"SPIRVWinogradVectorize", 207>;
 
 def VMVX_Default : I32EnumAttrCase<"VMVXDefault", 300>;
 
@@ -90,7 +92,8 @@ def DispatchLoweringPassPipelineEnum : I32EnumAttr<
     // SPIR-V CodeGen pipelines
     SPIRV_BaseLowering, SPIRV_BaseDistribute, SPIRV_BaseVectorize,
     SPIRV_SubgroupReduce, SPIRV_MatmulPromoteVectorize,
-    SPIRV_CooperativeMatrixVectorize, SPIRV_WinogradVectorize,
+    SPIRV_CooperativeMatrixVectorize, SPIRV_MatvecPromoteSubgroupReduce,
+    SPIRV_WinogradVectorize,
 
     VMVX_Default,
 

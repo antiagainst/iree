@@ -14,6 +14,7 @@
 #include "iree/compiler/Codegen/Transforms/Transforms.h"
 #include "iree/compiler/Codegen/Utils/GPUUtils.h"
 #include "iree/compiler/Codegen/Utils/MarkerUtils.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Debug.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -215,6 +216,12 @@ static LogicalResult tileParallelDims(func::FuncOp funcOp,
   std::array<int64_t, 3> elementPerWorkgroup = {
       distributeToWarp ? workgroupSize[0] / kWarpSize : workgroupSize[0],
       workgroupSize[1], workgroupSize[2]};
+  LLVM_DEBUG({
+    llvm::dbgs() << "element per workgroup: [";
+    llvm::interleaveComma(elementPerWorkgroup, llvm::dbgs());
+    llvm::dbgs() << "]\n";
+  });
+
   SmallVector<TilingInterface> computeOps;
   funcOp.walk([&](TilingInterface op) { computeOps.push_back(op); });
 
@@ -222,6 +229,7 @@ static LogicalResult tileParallelDims(func::FuncOp funcOp,
       StringAttr::get(funcOp.getContext(), getCopyToWorkgroupMemoryMarker());
 
   for (TilingInterface tilingOp : computeOps) {
+    LLVM_DEBUG(llvm::dbgs() << "current tiling op: " << tilingOp << "\n");
     auto attr = tilingOp->getAttr(
         IREE::LinalgExt::LinalgTransforms::kLinalgTransformMarker);
     if (attr == marker)
@@ -251,7 +259,9 @@ static LogicalResult tileParallelDims(func::FuncOp funcOp,
                                              : mlir::gpu::MappingId::DimZ);
     };
     for (unsigned loop : llvm::reverse(partitionedLoops)) {
+      LLVM_DEBUG(llvm::dbgs() << "current loop #" << loop << "\n");
       int64_t num = elementPerWorkgroup[id++];
+      LLVM_DEBUG(llvm::dbgs() << "# threads = " << num << "\n");
       if (num > 1) {
         numThreads[loop] = rewriter.getIndexAttr(num);
         idDims.push_back(getThreadMapping(threadDim++));

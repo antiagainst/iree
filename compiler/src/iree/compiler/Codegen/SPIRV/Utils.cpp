@@ -26,6 +26,9 @@ namespace mlir {
 namespace iree_compiler {
 
 const char *getSPIRVDistributeAttrName() { return "iree.spirv.distribute_dim"; }
+const char *getSPIRVDistributeDelinearizeXAttrName() {
+  return "iree.spirv.distribute_delinearize_x";
+}
 
 spirv::TargetEnvAttr getSPIRVTargetEnvAttr(Operation *op) {
   auto variant = op->getParentOfType<IREE::HAL::ExecutableVariantOp>();

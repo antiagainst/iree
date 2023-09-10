@@ -31,6 +31,7 @@ std::optional<int> getSPIRVSubgroupSize(func::FuncOp funcOp);
 
 /// Returns the attribute name carrying information about distribution.
 const char *getSPIRVDistributeAttrName();
+const char *getSPIRVDistributeDelinearizeXAttrName();
 
 /// Returns the tile sizes at the given `tilingLevel` for compute ops in
 /// `funcOp`.

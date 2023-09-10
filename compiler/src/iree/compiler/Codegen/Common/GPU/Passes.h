@@ -39,6 +39,7 @@ enum class PipeliningSchedulingStrategy {
 enum class GPUPromoteSharedMemPattern {
   ContractionOpPattern = 0,
   TransposeOpPattern = 1,
+  GemvOpPattern = 2,
 };
 
 FailureOr<scf::ForOp>

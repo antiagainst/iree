@@ -49,6 +49,10 @@ static llvm::cl::opt<int> clSPIRVIndexingBits(
     llvm::cl::desc("Set the bit width of indices in SPIR-V."),
     llvm::cl::init(32));
 
+//===----------------------------------------------------------------------===//
+// Bufferization controls
+//===----------------------------------------------------------------------===//
+
 // Allocation callbacks to use with upstream comprehensive bufferization
 static FailureOr<Value> gpuAllocateWorkgroupMemoryFn(OpBuilder &builder,
                                                      Location loc,
@@ -622,6 +626,68 @@ void addSPIRVTransformDialectPassPipeline(OpPassManager &pm) {
   // for SPIR-V.
   auto &nestedModulePM = pm.nest<ModuleOp>();
   nestedModulePM.addNestedPass<func::FuncOp>(createSPIRVVectorizePass());
+}
+
+void addSPIRVMatvecPromoteSubgroupReducePassPipeline(OpPassManager &topPM) {
+  addTileAndDistributeToWorkgroupsPasses(
+      topPM, /*useFuseTensorPadWithConsumerPass=*/false,
+      /*useWARForCooperativeMatrixCodegen=*/true);
+
+  // Promote to workgroups and tile to threads.
+  auto &nestedPM = topPM.nest<ModuleOp>();
+  nestedPM.addNestedPass<func::FuncOp>(
+      createGPUTensorAlloc(GPUPromoteSharedMemPattern::GemvOpPattern));
+  nestedPM.addNestedPass<func::FuncOp>(createSPIRVTileGEMVPass());
+
+  // High-level n-D vectorization.
+  {
+    GenericVectorizationPassOptions options;
+    options.vectorizePadding = true;
+    options.vectorizeGatherAccesses = true;
+    options.enableCleanup = false;
+    nestedPM.addNestedPass<func::FuncOp>(
+        createGenericVectorizationPass(options));
+    nestedPM.addNestedPass<func::FuncOp>(createSPIRVVectorizeGEMVPass());
+    nestedPM.addNestedPass<func::FuncOp>(
+        createHoistRedundantVectorTransfersPass());
+    nestedPM.addNestedPass<func::FuncOp>(createCanonicalizerPass());
+    nestedPM.addNestedPass<func::FuncOp>(createCSEPass());
+  }
+
+  // Bufferize.
+  addBufferizePasses(nestedPM, gpuAllocateWorkgroupMemoryFn);
+
+  // Distribute scf.forall to GPU threads.
+  nestedPM.addNestedPass<func::FuncOp>(createGPUDistribute());
+
+  nestedPM.addNestedPass<func::FuncOp>(createMemrefCopyToLinalgPass());
+  nestedPM.addNestedPass<func::FuncOp>(createGPUDistributeSharedMemoryCopy());
+  nestedPM.addPass(createCanonicalizerPass());
+  nestedPM.addPass(createCSEPass());
+
+  nestedPM.addNestedPass<func::FuncOp>(createGPUReduceSharedMemoryBankConflicts(
+      detail::bankConflictReductionPaddingBits));
+
+  nestedPM.addNestedPass<func::FuncOp>(createSPIRVVectorizePass());
+  nestedPM.addNestedPass<func::FuncOp>(createForOpCanonicalizationPass());
+  nestedPM.addPass(createCanonicalizerPass());
+  nestedPM.addPass(createCSEPass());
+  // After vectorization and some basic cleanup, optimize vector transfer ops.
+  // Here we won't have large n-D vectors being put as loop carried values due
+  // to hoisting. Because this is before folding all memref subview ops away, we
+  // still have subview ops using the same indices, which allows for transfer
+  // read/write forwarding.
+  nestedPM.addNestedPass<func::FuncOp>(createOptimizeVectorTransferPass(
+      /*flatten=*/false, /*dropUnitDims=*/false));
+
+  nestedPM.addNestedPass<func::FuncOp>(memref::createFoldMemRefAliasOpsPass());
+  nestedPM.addNestedPass<func::FuncOp>(createOptimizeVectorTransferPass(
+      /*flatten=*/false, /*dropUnitDims=*/false));
+
+  // Hoist loop invariant code to avoid pipelining it.
+  nestedPM.addNestedPass<func::FuncOp>(createLoopInvariantCodeMotionPass());
+
+  addLoopMaterializationPasses(nestedPM);
 }
 
 //===----------------------------------------------------------------------===//

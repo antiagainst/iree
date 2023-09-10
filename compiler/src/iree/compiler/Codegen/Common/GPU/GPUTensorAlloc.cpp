@@ -94,6 +94,15 @@ static bool isSharedMemTranspose(AffineMap indexMap) {
   return false;
 }
 
+static bool gemvOpFilter(Operation *op) {
+  auto linalgOp = dyn_cast<linalg::LinalgOp>(op);
+  if (!linalgOp)
+    return false;
+  if (!linalg::isaContractionOpInterface(linalgOp))
+    return false;
+  return linalgOp.getNumParallelLoops() == 1;
+}
+
 namespace {
 /// Swaps bufferization.alloc_tensor with the copied linalg op result when the
 /// linalg op does not use the output initial value during calculation.
@@ -160,16 +169,18 @@ public:
     auto funcOp = getOperation();
 
     // Tile the reduction first to reduce the alloc size.
-    if (failed(
-            tileReductionToSerialLoops(funcOp, /*fuseInputProducer=*/true))) {
-      return signalPassFailure();
-    }
+    if (promoteSharedMemPattern != GPUPromoteSharedMemPattern::GemvOpPattern) {
+      if (failed(
+              tileReductionToSerialLoops(funcOp, /*fuseInputProducer=*/true))) {
+        return signalPassFailure();
+      }
 
-    LLVM_DEBUG({
-      llvm::dbgs() << "// --- After tiling to serial loops ---\n";
-      funcOp.print(llvm::dbgs(), OpPrintingFlags().useLocalScope());
-      llvm::dbgs() << "\n\n";
-    });
+      LLVM_DEBUG({
+        llvm::dbgs() << "// --- After tiling to serial loops ---\n";
+        funcOp.print(llvm::dbgs(), OpPrintingFlags().useLocalScope());
+        llvm::dbgs() << "\n\n";
+      });
+    }
 
     SmallVector<Operation *> opsToPromote;
     funcOp.walk([&](Operation *op) {
@@ -180,6 +191,10 @@ public:
         break;
       case GPUPromoteSharedMemPattern::TransposeOpPattern:
         if (transposeOpFilter(op))
+          opsToPromote.push_back(op);
+        break;
+      case GPUPromoteSharedMemPattern::GemvOpPattern:
+        if (gemvOpFilter(op))
           opsToPromote.push_back(op);
         break;
       }
@@ -202,7 +217,7 @@ public:
         }
         break;
 
-      case GPUPromoteSharedMemPattern::TransposeOpPattern:
+      case GPUPromoteSharedMemPattern::TransposeOpPattern: {
         LinalgOpInfo opInfo(linalgOp, sharedMemTransposeFilter);
 
         for (auto operand : opInfo.getTransposeOperands()) {
@@ -214,7 +229,35 @@ public:
           Value v = ret.value();
           operand->set(v);
         }
-        break;
+      } break;
+
+      case GPUPromoteSharedMemPattern::GemvOpPattern: {
+        // Only promote the vector operands
+        SmallVector<utils::IteratorType, 4> kinds =
+            linalgOp.getIteratorTypesArray();
+        for (auto operand : linalgOp.getDpsInputOperands()) {
+          AffineMap map = linalgOp.getMatchingIndexingMap(operand);
+          assert(map.isProjectedPermutation());
+          bool hasParallelDim = false;
+          for (AffineExpr result : map.getResults()) {
+            if (auto dim = result.dyn_cast<AffineDimExpr>())
+              if (kinds[dim.getPosition()] == utils::IteratorType::parallel) {
+                hasParallelDim = true;
+                break;
+              }
+          }
+          if (hasParallelDim)
+            continue;
+
+          FailureOr<Value> ret = bufferization::allocateTensorForShapedValue(
+              builder, op->getLoc(), operand->get(), false, options, true);
+          if (failed(ret)) {
+            return signalPassFailure();
+          }
+          Value v = ret.value();
+          operand->set(v);
+        }
+      } break;
       }
     }
 
