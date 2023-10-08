@@ -145,10 +145,10 @@ hal.executable public @matmul_256x1024x128_div_exp {
 //         CHECK:       spirv.Store "Workgroup" %{{.+}}, %{{.+}} : vector<4xf32>
 //         CHECK:       spirv.ControlBarrier <Workgroup>, <Workgroup>, <AcquireRelease|WorkgroupMemory>
 
-//         CHECK:       spirv.Store "Function" %[[LOCAL_VAR0]], %[[MA1]]
-//         CHECK:       spirv.Store "Function" %[[LOCAL_VAR1]], %[[MA3]]
-//         CHECK:       spirv.Store "Function" %[[LOCAL_VAR2]], %[[MA5]]
-//         CHECK:       spirv.Store "Function" %[[LOCAL_VAR3]], %[[MA7]]
+//         CHECK:       spirv.Store "Function" %[[LOCAL_VAR0]], %[[MA3]]
+//         CHECK:       spirv.Store "Function" %[[LOCAL_VAR1]], %[[MA1]]
+//         CHECK:       spirv.Store "Function" %[[LOCAL_VAR2]], %[[MA7]]
+//         CHECK:       spirv.Store "Function" %[[LOCAL_VAR3]], %[[MA5]]
 
 //         CHECK:       spirv.mlir.merge
 
@@ -178,13 +178,13 @@ hal.executable public @matmul_256x1024x128_div_exp {
 //         CHECK:     %[[MA7:.+]] = spirv.KHR.CooperativeMatrixMulAdd %[[LD3]], %[[LD7]], %[[MA6]]
 
 //         CHECK:     %[[AC:.+]] = spirv.AccessChain %[[C_MEM]]
-//         CHECK:     spirv.KHR.CooperativeMatrixStore %[[AC]], %[[MA7]], %[[C9]], <RowMajor>
-//         CHECK:     %[[AC:.+]] = spirv.AccessChain %[[C_MEM]]
 //         CHECK:     spirv.KHR.CooperativeMatrixStore %[[AC]], %[[MA5]], %[[C9]], <RowMajor>
 //         CHECK:     %[[AC:.+]] = spirv.AccessChain %[[C_MEM]]
-//         CHECK:     spirv.KHR.CooperativeMatrixStore %[[AC]], %[[MA3]], %[[C9]], <RowMajor>
+//         CHECK:     spirv.KHR.CooperativeMatrixStore %[[AC]], %[[MA7]], %[[C9]], <RowMajor>
 //         CHECK:     %[[AC:.+]] = spirv.AccessChain %[[C_MEM]]
 //         CHECK:     spirv.KHR.CooperativeMatrixStore %[[AC]], %[[MA1]], %[[C9]], <RowMajor>
+//         CHECK:     %[[AC:.+]] = spirv.AccessChain %[[C_MEM]]
+//         CHECK:     spirv.KHR.CooperativeMatrixStore %[[AC]], %[[MA3]], %[[C9]], <RowMajor>
 
 //         CHECK:     spirv.ControlBarrier <Workgroup>, <Workgroup>, <AcquireRelease|WorkgroupMemory>
 //         CHECK:     spirv.Load "StorageBuffer" %{{.+}} : vector<4xf32>
