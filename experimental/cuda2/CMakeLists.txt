@@ -42,6 +42,8 @@ iree_cc_library(
     "pending_queue_actions.h"
     "pipeline_layout.c"
     "pipeline_layout.h"
+    "stream_command_buffer.c"
+    "stream_command_buffer.h"
     "timepoint_pool.c"
     "timepoint_pool.h"
     "tracing.c"
