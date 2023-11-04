@@ -12,10 +12,12 @@
 #include "experimental/cuda2/cuda_status_util.h"
 #include "experimental/cuda2/event_semaphore.h"
 #include "experimental/cuda2/graph_command_buffer.h"
+#include "experimental/cuda2/stream_command_buffer.h"
 #include "iree/base/api.h"
 #include "iree/base/internal/arena.h"
 #include "iree/base/internal/synchronization.h"
 #include "iree/hal/api.h"
+#include "iree/hal/utils/deferred_command_buffer.h"
 #include "iree/hal/utils/resource_set.h"
 
 //===----------------------------------------------------------------------===//
@@ -53,6 +55,10 @@ typedef struct iree_hal_cuda2_queue_action_t {
   CUstream dispatch_cu_stream;
   // The stream to launch CUDA host function callbacks.
   CUstream callback_cu_stream;
+
+  // The CUDA-stream command buffer used to apply deferred in-memory command
+  // buffers. Owned by the device.
+  iree_hal_command_buffer_t* deferred_command_buffer;
 
   // Resource set to retain all associated resources by the payload.
   iree_hal_resource_set_t* resource_set;
@@ -241,6 +247,7 @@ static void iree_hal_cuda2_free_semaphore_list(
 
 iree_status_t iree_hal_cuda2_pending_queue_actions_enqueue_execution(
     CUstream dispatch_stream, CUstream callback_stream,
+    iree_hal_command_buffer_t* deferred_command_buffer,
     iree_hal_cuda2_pending_queue_actions_t* actions,
     const iree_hal_semaphore_list_t wait_semaphore_list,
     const iree_hal_semaphore_list_t signal_semaphore_list,
@@ -260,6 +267,7 @@ iree_status_t iree_hal_cuda2_pending_queue_actions_enqueue_execution(
   action->payload.command_buffers.ptr = command_buffers;
   action->dispatch_cu_stream = dispatch_stream;
   action->callback_cu_stream = callback_stream;
+  action->deferred_command_buffer = deferred_command_buffer;
   action->events = NULL;
   action->event_count = 0;
   action->is_pending = true;
@@ -364,11 +372,24 @@ static iree_status_t iree_hal_cuda2_pending_queue_actions_issue_execution(
 
   // Then launch all command buffers to the dispatch stream.
   for (iree_host_size_t i = 0; i < action->payload.command_buffers.count; ++i) {
-    CUgraphExec exec = iree_hal_cuda2_graph_command_buffer_handle(
-        action->payload.command_buffers.ptr[i]);
-    IREE_CUDA_RETURN_AND_END_ZONE_IF_ERROR(
-        z0, symbols, cuGraphLaunch(exec, action->dispatch_cu_stream),
-        "cuGraphLaunch");
+    iree_hal_command_buffer_t* command_buffer =
+        action->payload.command_buffers.ptr[i];
+    if (iree_hal_cuda2_graph_command_buffer_isa(command_buffer)) {
+      CUgraphExec exec = iree_hal_cuda2_graph_command_buffer_handle(
+          action->payload.command_buffers.ptr[i]);
+      IREE_CUDA_RETURN_AND_END_ZONE_IF_ERROR(
+          z0, symbols, cuGraphLaunch(exec, action->dispatch_cu_stream),
+          "cuGraphLaunch");
+    } else if (iree_hal_cuda2_stream_command_buffer_isa(command_buffer)) {
+      // Nothing to do for an inline command buffer that immediately issues
+      // commands to the underlying CUDA stream; all the work has already been
+      // submitted.
+    } else {
+      IREE_RETURN_AND_END_ZONE_IF_ERROR(
+          z0, iree_hal_deferred_command_buffer_apply(
+                  command_buffer, action->deferred_command_buffer,
+                  iree_hal_buffer_binding_table_empty()));
+    }
   }
 
   // Last record CUevent signals in the dispatch stream.
