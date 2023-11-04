@@ -114,7 +114,6 @@ IREE_API_EXPORT void iree_hal_cuda2_device_params_initialize(
   out_params->event_pool_capacity = 32;
   out_params->queue_count = 1;
   out_params->command_buffer_mode = IREE_HAL_CUDA_COMMAND_BUFFER_MODE_GRAPH;
-  out_params->allow_inline_execution = false;
   out_params->stream_tracing = false;
   out_params->async_allocations = true;
 }
@@ -544,19 +543,6 @@ static iree_status_t iree_hal_cuda2_device_create_command_buffer(
     iree_hal_command_buffer_t** out_command_buffer) {
   iree_hal_cuda2_device_t* device = iree_hal_cuda2_device_cast(base_device);
 
-  if (device->params.allow_inline_execution &&
-      iree_all_bits_set(mode,
-                        IREE_HAL_COMMAND_BUFFER_MODE_ALLOW_INLINE_EXECUTION)) {
-    // The caller has indicated the command buffer can be executed as it is
-    // recorded, implying that the command buffer cannot be reused and doesn't
-    // need to be persisted. This lets us lower the execution delay as we can
-    // directly route commands to a CUDA stream and let it eagerly flush.
-    return iree_hal_cuda2_stream_command_buffer_create(
-        base_device, device->cuda_symbols, device->nccl_symbols,
-        device->tracing_context, mode, command_categories, binding_capacity,
-        device->dispatch_cu_stream, &device->block_pool, device->host_allocator,
-        out_command_buffer);
-  }
   switch (device->params.command_buffer_mode) {
     case IREE_HAL_CUDA_COMMAND_BUFFER_MODE_GRAPH:
       return iree_hal_cuda2_graph_command_buffer_create(

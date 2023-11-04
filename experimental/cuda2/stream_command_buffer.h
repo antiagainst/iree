@@ -21,9 +21,9 @@ extern "C" {
 // Creates command buffer that immediately issues commands against the given
 // CUDA |stream|. Access to |stream| must be synchronized by the user.
 //
-// |block_pool| will be used by the stream command buffer to retain copies of
-// input data until reset. It must remain live for the lifetime of the command
-// buffers that use it.
+// If |block_pool| is non-NULL then the stream command buffer will retain copies
+// of input data until reset. If NULL then the caller must ensure the lifetime
+// of input data outlives the command buffer.
 //
 // This command buffer is used to both replay deferred command buffers and
 // perform inline execution. When replaying the scratch data required for things

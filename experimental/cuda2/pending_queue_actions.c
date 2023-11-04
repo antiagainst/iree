@@ -12,7 +12,6 @@
 #include "experimental/cuda2/cuda_status_util.h"
 #include "experimental/cuda2/event_semaphore.h"
 #include "experimental/cuda2/graph_command_buffer.h"
-#include "experimental/cuda2/stream_command_buffer.h"
 #include "iree/base/api.h"
 #include "iree/base/internal/arena.h"
 #include "iree/base/internal/synchronization.h"
@@ -380,10 +379,6 @@ static iree_status_t iree_hal_cuda2_pending_queue_actions_issue_execution(
       IREE_CUDA_RETURN_AND_END_ZONE_IF_ERROR(
           z0, symbols, cuGraphLaunch(exec, action->dispatch_cu_stream),
           "cuGraphLaunch");
-    } else if (iree_hal_cuda2_stream_command_buffer_isa(command_buffer)) {
-      // Nothing to do for an inline command buffer that immediately issues
-      // commands to the underlying CUDA stream; all the work has already been
-      // submitted.
     } else {
       IREE_RETURN_AND_END_ZONE_IF_ERROR(
           z0, iree_hal_deferred_command_buffer_apply(
