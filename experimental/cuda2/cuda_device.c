@@ -89,7 +89,7 @@ typedef struct iree_hal_cuda2_device_t {
   // Optional provider used for creating/configuring collective channels.
   iree_hal_channel_provider_t* channel_provider;
 
-  // A CUA-stream command buffer used to apply deferred command buffers.
+  // A CUDA stream-based command buffer used to apply deferred command buffers.
   // TODO: have one cached per stream once there are multiple streams.
   iree_hal_command_buffer_t* deferred_command_buffer;
 } iree_hal_cuda2_device_t;

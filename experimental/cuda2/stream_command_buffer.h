@@ -21,14 +21,14 @@ extern "C" {
 // Creates command buffer that immediately issues commands against the given
 // CUDA |stream|. Access to |stream| must be synchronized by the user.
 //
-// If |block_pool| is non-NULL then the stream command buffer will retain copies
-// of input data until reset. If NULL then the caller must ensure the lifetime
-// of input data outlives the command buffer.
-//
 // This command buffer is used to both replay deferred command buffers and
 // perform inline execution. When replaying the scratch data required for things
 // like buffer updates is retained by the source deferred command buffer and as
 // such the |block_pool| and can be NULL to avoid a double copy.
+//
+// If |block_pool| is non-NULL then the stream command buffer will retain copies
+// of input data until reset. If NULL then the caller must ensure the lifetime
+// of input data outlives the command buffer.
 iree_status_t iree_hal_cuda2_stream_command_buffer_create(
     iree_hal_device_t* device,
     const iree_hal_cuda2_dynamic_symbols_t* cuda_symbols,

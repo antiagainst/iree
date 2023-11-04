@@ -55,8 +55,9 @@ typedef struct iree_hal_cuda2_queue_action_t {
   // The stream to launch CUDA host function callbacks.
   CUstream callback_cu_stream;
 
-  // The CUDA-stream command buffer used to apply deferred in-memory command
-  // buffers. Owned by the device.
+  // The CUDA stream-based command buffer used to apply deferred in-memory
+  // command buffers.
+  // Owned by the device; must be issuing to dispatch_cu_stream in the above.
   iree_hal_command_buffer_t* deferred_command_buffer;
 
   // Resource set to retain all associated resources by the payload.
