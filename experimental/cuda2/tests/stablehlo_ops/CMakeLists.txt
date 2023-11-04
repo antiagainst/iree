@@ -76,6 +76,8 @@ iree_check_single_backend_test_suite(
     "--iree-input-type=stablehlo"
     # TODO(#13984): We need memset emulation to workaround CUDA graph issues for now.
     "--iree-stream-emulate-memset"
+  RUNNER_ARGS
+    "--cuda2_use_streams=false"
   LABELS
     "noasan"
     "nomsan"

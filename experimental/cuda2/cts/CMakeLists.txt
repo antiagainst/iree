@@ -17,6 +17,8 @@ iree_hal_cts_test_suite(
     "cuda"
   EXECUTABLE_FORMAT
     "\"PTXE\""
+  ARGS
+    "--cuda2_use_streams=false"
   DEPS
     iree::experimental::cuda2::registration
   EXCLUDED_TESTS
