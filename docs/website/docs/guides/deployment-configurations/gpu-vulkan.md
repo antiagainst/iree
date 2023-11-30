@@ -193,7 +193,7 @@ iree-compile \
 !!! note
     Currently a target triple of the form `<vendor/arch>-<product>-<os>` is needed
     to compile towards a specific GPU architecture.
-    
+
     We don't support the full spectrum here[^1]; the following table summarizes the
     currently recognized ones.
     
