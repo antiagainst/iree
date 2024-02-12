@@ -7,10 +7,13 @@
 #ifndef IREE_HAL_DRIVERS_VULKAN_PARAMETER_BUFFER_H_
 #define IREE_HAL_DRIVERS_VULKAN_PARAMETER_BUFFER_H_
 
+// clang-format off: must be included before all other headers.
+#include "iree/hal/drivers/vulkan/vulkan_headers.h"
+// clang-format on
+
 #include "iree/base/api.h"
 #include "iree/base/internal/synchronization.h"
 #include "iree/hal/api.h"
-#include "iree/hal/drivers/vulkan/vulkan_headers.h"
 
 #ifdef __cplusplus
 extern "C" {

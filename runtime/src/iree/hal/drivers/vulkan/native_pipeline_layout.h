@@ -19,6 +19,9 @@
 extern "C" {
 #endif  // __cplusplus
 
+#define IREE_HAL_VULKAN_BASE_DESCRIPTOR_SET_COUNT 4
+#define IREE_HAL_VULKAN_BASE_DESCRIPTOR_SET 3
+
 //===----------------------------------------------------------------------===//
 // iree_hal_vulkan_native_descriptor_set_layout_t
 //===----------------------------------------------------------------------===//
@@ -38,6 +41,10 @@ VkDescriptorSetLayout iree_hal_vulkan_native_descriptor_set_layout_handle(
 // Returns the flags used to create |base_descriptor_set_layout|.
 iree_hal_descriptor_set_layout_flags_t
 iree_hal_vulkan_native_descriptor_set_layout_flags(
+    iree_hal_descriptor_set_layout_t* base_descriptor_set_layout);
+
+// Returns the max binding number in |base_descriptor_set_layout|.
+uint32_t iree_hal_vulkan_native_descriptor_set_layout_max_binding(
     iree_hal_descriptor_set_layout_t* base_descriptor_set_layout);
 
 //===----------------------------------------------------------------------===//

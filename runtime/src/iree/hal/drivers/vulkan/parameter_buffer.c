@@ -28,7 +28,8 @@ iree_status_t iree_hal_vulkan_parameter_buffer_initialize(
                IREE_HAL_BUFFER_USAGE_DISPATCH_STORAGE_READ,
       .access = IREE_HAL_MEMORY_ACCESS_ALL,
       .type = IREE_HAL_MEMORY_TYPE_OPTIMAL_FOR_DEVICE |
-              IREE_HAL_MEMORY_TYPE_HOST_VISIBLE,
+              IREE_HAL_MEMORY_TYPE_HOST_VISIBLE |
+              IREE_HAL_MEMORY_TYPE_HOST_COHERENT,
   };
   iree_hal_buffer_t* device_buffer = NULL;
   IREE_RETURN_AND_END_ZONE_IF_ERROR(

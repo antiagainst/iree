@@ -45,6 +45,11 @@ iree_status_t iree_hal_vulkan_native_executable_pipeline_for_entry_point(
     iree_hal_executable_t* executable, iree_host_size_t entry_ordinal,
     VkPipeline* out_pipeline_handle);
 
+// Returns the pipeline layout for the given executable |entry_ordinal|.
+iree_status_t iree_hal_vulkan_native_executable_pipeline_layout_for_entry_point(
+    iree_hal_executable_t* executable, iree_host_size_t entry_ordinal,
+    iree_hal_pipeline_layout_t** out_pipeline_layout);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus

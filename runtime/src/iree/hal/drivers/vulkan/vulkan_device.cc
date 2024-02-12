@@ -830,6 +830,8 @@ static void iree_hal_vulkan_device_destroy(iree_hal_device_t* base_device) {
   delete device->builtin_executables;
   delete device->descriptor_pool_cache;
 
+  iree_hal_vulkan_parameter_buffer_deinitialize(&device->parameter_buffer);
+
   // There should be no more buffers live that use the allocator.
   iree_hal_allocator_release(device->device_allocator);
 
@@ -842,8 +844,6 @@ static void iree_hal_vulkan_device_destroy(iree_hal_device_t* base_device) {
   // Finally, destroy the device.
   device->logical_device->ReleaseReference();
   iree_hal_driver_release(device->driver);
-
-  iree_hal_vulkan_parameter_buffer_deinitialize(&device->parameter_buffer);
 
   iree_allocator_free(host_allocator, device);
 

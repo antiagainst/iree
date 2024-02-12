@@ -372,6 +372,8 @@ static iree_status_t iree_hal_vulkan_native_allocator_create_buffer(
     buffer_create_info.usage |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
     buffer_create_info.usage |= VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
   }
+  // TODO: control this properly
+  buffer_create_info.usage |= VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
   if (use_sparse_allocation) {
     buffer_create_info.flags |= VK_BUFFER_CREATE_SPARSE_BINDING_BIT |
                                 VK_BUFFER_CREATE_SPARSE_RESIDENCY_BIT;

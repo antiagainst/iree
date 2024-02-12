@@ -17,7 +17,6 @@
 #include "iree/hal/drivers/vulkan/descriptor_pool_cache.h"
 #include "iree/hal/drivers/vulkan/dynamic_symbols.h"
 #include "iree/hal/drivers/vulkan/handle_util.h"
-#include "iree/hal/drivers/vulkan/native_executable.h"
 #include "iree/hal/drivers/vulkan/util/arena.h"
 #include "iree/hal/drivers/vulkan/util/ref_ptr.h"
 

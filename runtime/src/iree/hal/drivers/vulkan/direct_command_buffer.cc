@@ -61,6 +61,11 @@ typedef struct iree_hal_vulkan_direct_command_buffer_t {
   // TODO(scotttodd): use [maxPushConstantsSize - 16, maxPushConstantsSize]
   //                  instead of [0, 16] to reduce frequency of updates
   uint8_t push_constants_storage[IREE_HAL_VULKAN_BUILTIN_PUSH_CONSTANT_COUNT];
+
+  // Scratch fields for parameter buffer preparation.
+  iree_hal_descriptor_set_binding_t
+      indirect_sets[IREE_HAL_VULKAN_BASE_DESCRIPTOR_SET_COUNT];
+  iree_host_size_t indirect_set_count;
 } iree_hal_vulkan_direct_command_buffer_t;
 
 namespace {
@@ -707,8 +712,45 @@ static iree_status_t iree_hal_vulkan_direct_command_buffer_push_descriptor_set(
   iree_hal_descriptor_set_layout_flags_t flags =
       iree_hal_vulkan_native_descriptor_set_layout_flags(set_layout);
   if (iree_all_bits_set(flags, IREE_HAL_DESCRIPTOR_SET_LAYOUT_FLAG_INDIRECT)) {
-    return iree_make_status(IREE_STATUS_UNIMPLEMENTED,
-                            "indirect bindings not yet implemented");
+    // We encode a list of pointers. Each pointer takes 8 bytes.
+    uint32_t max_binding =
+        iree_hal_vulkan_native_descriptor_set_layout_max_binding(set_layout);
+    iree_host_size_t buffer_size = (max_binding + 1) * 8;
+
+    iree_byte_span_t reservation;
+    uint32_t buffer_offset;
+    IREE_RETURN_AND_END_ZONE_IF_ERROR(
+        z0, iree_hal_vulkan_parameter_buffer_reserve(
+                command_buffer->parameter_buffer, buffer_size,
+                /*alignment=*/8, &reservation, &buffer_offset));
+
+    VkBufferDeviceAddressInfoKHR addr_info;
+    memset(&addr_info, 0, sizeof(addr_info));
+    addr_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
+    for (iree_host_size_t i = 0; i < binding_count; ++i) {
+      addr_info.buffer = iree_hal_vulkan_buffer_handle(bindings[i].buffer);
+      VkDeviceAddress device_addr =
+          command_buffer->syms->vkGetBufferDeviceAddress(
+              command_buffer->logical_device->value(), &addr_info);
+      iree_host_size_t offset = bindings[i].binding * 8;
+      *(uint64_t*)&reservation.data[offset] = device_addr;
+    }
+
+    command_buffer->indirect_sets[set].binding = set;
+    command_buffer->indirect_sets[set].buffer =
+        command_buffer->parameter_buffer->device_buffer;
+    command_buffer->indirect_sets[set].offset = buffer_offset;
+    command_buffer->indirect_sets[set].length = buffer_size;
+    command_buffer->indirect_set_count = set + 1;
+
+    return iree_ok_status();
+    /*
+    iree_hal_buffer_mapping_t mapping =
+        command_buffer->parameter_buffer->mapping;
+    mapping.contents = reservation;
+    return iree_hal_buffer_mapping_flush_range(&mapping, buffer_offset,
+                                               buffer_size);
+    */
   }
 
   // TODO(benvanik): batch insert by getting the resources in their own list.
@@ -725,12 +767,33 @@ static iree_status_t iree_hal_vulkan_direct_command_buffer_push_descriptor_set(
       command_buffer->handle, pipeline_layout, set, binding_count, bindings);
 }
 
+static iree_status_t
+iree_hal_vulkan_direct_command_buffer_bind_parameter_buffer(
+    iree_hal_vulkan_direct_command_buffer_t* command_buffer,
+    iree_hal_executable_t* executable, int32_t entry_point) {
+  iree_hal_pipeline_layout_t* layout = NULL;
+  iree_hal_vulkan_native_executable_pipeline_layout_for_entry_point(
+      executable, entry_point, &layout);
+  iree_status_t status = command_buffer->descriptor_set_arena.BindDescriptorSet(
+      command_buffer->handle, layout, IREE_HAL_VULKAN_BASE_DESCRIPTOR_SET,
+      command_buffer->indirect_set_count, command_buffer->indirect_sets);
+  memset(command_buffer->indirect_sets, 0,
+         command_buffer->indirect_set_count *
+             sizeof(command_buffer->indirect_sets[0]));
+  command_buffer->indirect_set_count = 0;
+  return status;
+}
+
 static iree_status_t iree_hal_vulkan_direct_command_buffer_dispatch(
     iree_hal_command_buffer_t* base_command_buffer,
     iree_hal_executable_t* executable, int32_t entry_point,
     uint32_t workgroup_x, uint32_t workgroup_y, uint32_t workgroup_z) {
   iree_hal_vulkan_direct_command_buffer_t* command_buffer =
       iree_hal_vulkan_direct_command_buffer_cast(base_command_buffer);
+
+  IREE_RETURN_IF_ERROR(
+      iree_hal_vulkan_direct_command_buffer_bind_parameter_buffer(
+          command_buffer, executable, entry_point));
 
   IREE_TRACE({
     iree_hal_vulkan_source_location_t source_location;
@@ -771,6 +834,10 @@ static iree_status_t iree_hal_vulkan_direct_command_buffer_dispatch_indirect(
     iree_device_size_t workgroups_offset) {
   iree_hal_vulkan_direct_command_buffer_t* command_buffer =
       iree_hal_vulkan_direct_command_buffer_cast(base_command_buffer);
+
+  IREE_RETURN_IF_ERROR(
+      iree_hal_vulkan_direct_command_buffer_bind_parameter_buffer(
+          command_buffer, executable, entry_point));
 
   const void* resources[2] = {executable, workgroups_buffer};
   IREE_RETURN_IF_ERROR(iree_hal_resource_set_insert(

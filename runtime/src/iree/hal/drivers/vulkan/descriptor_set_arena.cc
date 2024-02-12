@@ -7,7 +7,6 @@
 #include "iree/hal/drivers/vulkan/descriptor_set_arena.h"
 
 #include <cstddef>
-#include <type_traits>
 #include <utility>
 
 #include "iree/base/internal/math.h"

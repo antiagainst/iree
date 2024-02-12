@@ -10,7 +10,6 @@
 #include <cstdint>
 
 #include "iree/base/api.h"
-#include "iree/hal/drivers/vulkan/dynamic_symbol_tables.h"
 #include "iree/hal/drivers/vulkan/dynamic_symbols.h"
 #include "iree/hal/drivers/vulkan/extensibility_util.h"
 #include "iree/hal/drivers/vulkan/status_util.h"
@@ -26,6 +25,7 @@ typedef struct iree_hal_vulkan_native_descriptor_set_layout_t {
   iree_hal_resource_t resource;
   VkDeviceHandle* logical_device;
   VkDescriptorSetLayout handle;
+  uint32_t max_binding;
   iree_hal_descriptor_set_layout_flags_t flags;
 } iree_hal_vulkan_native_descriptor_set_layout_t;
 
@@ -114,9 +114,11 @@ iree_status_t iree_hal_vulkan_native_descriptor_set_layout_create(
   IREE_TRACE_ZONE_BEGIN(z0);
 
   VkDescriptorSetLayout handle = VK_NULL_HANDLE;
-  IREE_RETURN_AND_END_ZONE_IF_ERROR(
-      z0, iree_hal_vulkan_create_descriptor_set_layout(
-              logical_device, flags, binding_count, bindings, &handle));
+  if (!iree_all_bits_set(flags, IREE_HAL_DESCRIPTOR_SET_LAYOUT_FLAG_INDIRECT)) {
+    IREE_RETURN_AND_END_ZONE_IF_ERROR(
+        z0, iree_hal_vulkan_create_descriptor_set_layout(
+                logical_device, flags, binding_count, bindings, &handle));
+  }
 
   iree_hal_vulkan_native_descriptor_set_layout_t* descriptor_set_layout = NULL;
   iree_status_t status = iree_allocator_malloc(logical_device->host_allocator(),
@@ -128,6 +130,11 @@ iree_status_t iree_hal_vulkan_native_descriptor_set_layout_create(
         &descriptor_set_layout->resource);
     descriptor_set_layout->logical_device = logical_device;
     descriptor_set_layout->handle = handle;
+    uint32_t max_binding = 0;
+    for (iree_host_size_t i = 0; i < binding_count; ++i) {
+      max_binding = iree_max(max_binding, bindings[i].binding);
+    }
+    descriptor_set_layout->max_binding = max_binding;
     descriptor_set_layout->flags = flags;
     *out_descriptor_set_layout =
         (iree_hal_descriptor_set_layout_t*)descriptor_set_layout;
@@ -172,6 +179,14 @@ iree_hal_vulkan_native_descriptor_set_layout_flags(
   return descriptor_set_layout->flags;
 }
 
+uint32_t iree_hal_vulkan_native_descriptor_set_layout_max_binding(
+    iree_hal_descriptor_set_layout_t* base_descriptor_set_layout) {
+  iree_hal_vulkan_native_descriptor_set_layout_t* descriptor_set_layout =
+      iree_hal_vulkan_native_descriptor_set_layout_cast(
+          base_descriptor_set_layout);
+  return descriptor_set_layout->max_binding;
+}
+
 namespace {
 const iree_hal_descriptor_set_layout_vtable_t
     iree_hal_vulkan_native_descriptor_set_layout_vtable = {
@@ -187,6 +202,9 @@ typedef struct iree_hal_vulkan_native_pipeline_layout_t {
   iree_hal_resource_t resource;
   VkDeviceHandle* logical_device;
   VkPipelineLayout handle;
+  iree_host_size_t indirect_set_count;
+  VkDescriptorSetLayout
+      indirect_sets[IREE_HAL_VULKAN_BASE_DESCRIPTOR_SET_COUNT];
   iree_host_size_t set_layout_count;
   iree_hal_descriptor_set_layout_t* set_layouts[];
 } iree_hal_vulkan_native_pipeline_layout_t;
@@ -204,7 +222,7 @@ iree_hal_vulkan_native_pipeline_layout_cast(
   return (iree_hal_vulkan_native_pipeline_layout_t*)base_value;
 }
 
-static iree_status_t iree_hal_vulkan_create_pipeline_layout(
+static iree_status_t iree_hal_vulkan_create_direct_pipeline_layout(
     iree::hal::vulkan::VkDeviceHandle* logical_device,
     iree_host_size_t push_constant_count, iree_host_size_t set_layout_count,
     iree_hal_descriptor_set_layout_t* const* set_layouts,
@@ -237,6 +255,58 @@ static iree_status_t iree_hal_vulkan_create_pipeline_layout(
                                  logical_device->allocator(), out_handle),
                              "vkCreatePipelineLayout");
 }
+static iree_status_t iree_hal_vulkan_create_indirect_pipeline_layout(
+    iree::hal::vulkan::VkDeviceHandle* logical_device,
+    iree_host_size_t push_constant_count, iree_host_size_t set_layout_count,
+    iree_hal_descriptor_set_layout_t* const* set_layouts,
+    VkPipelineLayout* out_handle, VkDescriptorSetLayout* indirect_sets) {
+  // For indrect bindings, we only use one Vulkan descriptor set to encode all
+  // binding (S, B) pairs.
+  iree_host_size_t binding_length =
+      set_layout_count * sizeof(iree_hal_descriptor_set_layout_binding_t);
+  iree_hal_descriptor_set_layout_binding_t* bindings =
+      (iree_hal_descriptor_set_layout_binding_t*)iree_alloca(binding_length);
+  memset(bindings, 0, binding_length);
+  for (iree_host_size_t i = 0; i < set_layout_count; ++i) {
+    bindings[i].binding = i;
+    bindings[i].type = IREE_HAL_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    bindings[i].flags = IREE_HAL_DESCRIPTOR_FLAG_READ_ONLY;
+  }
+
+  for (size_t i = 0; i < IREE_HAL_VULKAN_BASE_DESCRIPTOR_SET_COUNT; ++i) {
+    if (i == IREE_HAL_VULKAN_BASE_DESCRIPTOR_SET) {
+      IREE_RETURN_IF_ERROR(iree_hal_vulkan_create_descriptor_set_layout(
+          logical_device, IREE_HAL_DESCRIPTOR_SET_LAYOUT_FLAG_NONE,
+          /*binding_count=*/set_layout_count, bindings, &indirect_sets[i]));
+    } else {
+      // Even though we're just using one set, we still need to create dummy set
+      // layout (without any bindings) for those preceding this set.
+      IREE_RETURN_IF_ERROR(iree_hal_vulkan_create_descriptor_set_layout(
+          logical_device, IREE_HAL_DESCRIPTOR_SET_LAYOUT_FLAG_NONE,
+          /*binding_count=*/0, /*bindings=*/nullptr, &indirect_sets[i]));
+    }
+  }
+
+  VkPushConstantRange push_constant_ranges[1];
+  push_constant_ranges[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+  push_constant_ranges[0].offset = 0;
+  push_constant_ranges[0].size =
+      (uint32_t)(push_constant_count * sizeof(uint32_t));
+
+  VkPipelineLayoutCreateInfo create_info;
+  create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+  create_info.pNext = nullptr;
+  create_info.flags = 0;
+  create_info.setLayoutCount = IREE_HAL_VULKAN_BASE_DESCRIPTOR_SET_COUNT;
+  create_info.pSetLayouts = indirect_sets;
+  create_info.pushConstantRangeCount = push_constant_count > 0 ? 1 : 0;
+  create_info.pPushConstantRanges = push_constant_ranges;
+
+  return VK_RESULT_TO_STATUS(logical_device->syms()->vkCreatePipelineLayout(
+                                 *logical_device, &create_info,
+                                 logical_device->allocator(), out_handle),
+                             "vkCreatePipelineLayout");
+}
 
 static void iree_hal_vulkan_destroy_pipeline_layout(
     VkDeviceHandle* logical_device, VkPipelineLayout handle) {
@@ -256,11 +326,38 @@ iree_status_t iree_hal_vulkan_native_pipeline_layout_create(
   *out_pipeline_layout = NULL;
   IREE_TRACE_ZONE_BEGIN(z0);
 
+  iree_hal_descriptor_set_layout_flags_t flags =
+      IREE_HAL_DESCRIPTOR_SET_LAYOUT_FLAG_NONE;
+  if (set_layout_count != 0) {
+    flags = iree_hal_vulkan_native_descriptor_set_layout_flags(set_layouts[0]);
+  }
+
   VkPipelineLayout handle = VK_NULL_HANDLE;
-  IREE_RETURN_AND_END_ZONE_IF_ERROR(
-      z0, iree_hal_vulkan_create_pipeline_layout(
-              logical_device, push_constant_count, set_layout_count,
-              set_layouts, &handle));
+  VkDescriptorSetLayout* indirect_sets = (VkDescriptorSetLayout*)iree_alloca(
+      IREE_HAL_VULKAN_BASE_DESCRIPTOR_SET_COUNT *
+      sizeof(VkDescriptorSetLayout));
+  bool is_indirect =
+      iree_all_bits_set(flags, IREE_HAL_DESCRIPTOR_SET_LAYOUT_FLAG_INDIRECT);
+  if (is_indirect) {
+    for (iree_host_size_t i = 1; i < set_layout_count; ++i) {
+      if (iree_hal_vulkan_native_descriptor_set_layout_flags(set_layouts[i]) !=
+          flags) {
+        return iree_make_status(
+            IREE_STATUS_UNIMPLEMENTED,
+            "mixed direct and indirect bindings not yet implemented");
+      }
+    }
+
+    IREE_RETURN_AND_END_ZONE_IF_ERROR(
+        z0, iree_hal_vulkan_create_indirect_pipeline_layout(
+                logical_device, push_constant_count, set_layout_count,
+                set_layouts, &handle, indirect_sets));
+  } else {
+    IREE_RETURN_AND_END_ZONE_IF_ERROR(
+        z0, iree_hal_vulkan_create_direct_pipeline_layout(
+                logical_device, push_constant_count, set_layout_count,
+                set_layouts, &handle));
+  }
 
   iree_hal_vulkan_native_pipeline_layout_t* pipeline_layout = NULL;
   iree_host_size_t total_size =
@@ -273,6 +370,14 @@ iree_status_t iree_hal_vulkan_native_pipeline_layout_create(
                                  &pipeline_layout->resource);
     pipeline_layout->logical_device = logical_device;
     pipeline_layout->handle = handle;
+    if (is_indirect) {
+      pipeline_layout->indirect_set_count =
+          IREE_HAL_VULKAN_BASE_DESCRIPTOR_SET_COUNT;
+      for (iree_host_size_t i = 0;
+           i < IREE_HAL_VULKAN_BASE_DESCRIPTOR_SET_COUNT; ++i) {
+        pipeline_layout->indirect_sets[i] = indirect_sets[i];
+      }
+    }
     pipeline_layout->set_layout_count = set_layout_count;
     for (iree_host_size_t i = 0; i < set_layout_count; ++i) {
       pipeline_layout->set_layouts[i] = set_layouts[i];
@@ -297,6 +402,10 @@ static void iree_hal_vulkan_native_pipeline_layout_destroy(
 
   iree_hal_vulkan_destroy_pipeline_layout(pipeline_layout->logical_device,
                                           pipeline_layout->handle);
+  for (iree_host_size_t i = 0; i < pipeline_layout->indirect_set_count; ++i) {
+    iree_hal_vulkan_destroy_descriptor_set_layout(
+        pipeline_layout->logical_device, pipeline_layout->indirect_sets[i]);
+  }
   for (iree_host_size_t i = 0; i < pipeline_layout->set_layout_count; ++i) {
     iree_hal_descriptor_set_layout_release(pipeline_layout->set_layouts[i]);
   }

@@ -19,12 +19,14 @@
 
 // flatcc schemas:
 #include "iree/base/internal/flatcc/parsing.h"
+#include "iree/hal/pipeline_layout.h"
 #include "iree/schemas/spirv_executable_def_reader.h"
 #include "iree/schemas/spirv_executable_def_verifier.h"
 
 using namespace iree::hal::vulkan;
 
 typedef struct iree_hal_vulkan_entry_point_t {
+  iree_hal_pipeline_layout_t* layout;
   VkPipeline pipeline;
   iree_string_view_t name;
 
@@ -165,6 +167,8 @@ static iree_status_t iree_hal_vulkan_create_pipelines(
   if (iree_status_is_ok(status)) {
     for (iree_host_size_t i = 0; i < pipeline_count; ++i) {
       out_entry_points[i].pipeline = pipelines[i];
+      out_entry_points[i].layout = executable_params->pipeline_layouts[i];
+      iree_hal_resource_retain(out_entry_points[i].layout);
 
       // Set pipeline name for tooling.
       if (PFN_vkSetDebugUtilsObjectNameEXT set_name =
@@ -446,6 +450,7 @@ static void iree_hal_vulkan_native_executable_destroy(
   for (iree_host_size_t i = 0; i < executable->entry_point_count; ++i) {
     iree_hal_vulkan_destroy_pipeline(executable->logical_device,
                                      executable->entry_points[i].pipeline);
+    iree_hal_resource_release(executable->entry_points[i].layout);
   }
   iree_allocator_free(host_allocator, executable);
 
@@ -485,6 +490,20 @@ iree_status_t iree_hal_vulkan_native_executable_pipeline_for_entry_point(
                             entry_ordinal);
   }
   *out_pipeline_handle = executable->entry_points[entry_ordinal].pipeline;
+  return iree_ok_status();
+}
+
+iree_status_t iree_hal_vulkan_native_executable_pipeline_layout_for_entry_point(
+    iree_hal_executable_t* base_executable, iree_host_size_t entry_ordinal,
+    iree_hal_pipeline_layout_t** out_pipeline_layout) {
+  iree_hal_vulkan_native_executable_t* executable =
+      iree_hal_vulkan_native_executable_cast(base_executable);
+  if (entry_ordinal >= executable->entry_point_count) {
+    return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
+                            "invalid entry point ordinal %" PRIhsz,
+                            entry_ordinal);
+  }
+  *out_pipeline_layout = executable->entry_points[entry_ordinal].layout;
   return iree_ok_status();
 }
 
