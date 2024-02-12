@@ -213,6 +213,11 @@ typedef uint32_t iree_hal_vulkan_device_flags_t;
 typedef struct iree_hal_vulkan_device_options_t {
   // Flags controlling device behavior.
   iree_hal_vulkan_device_flags_t flags;
+
+  // Total size in bytes of per-device uniform buffers for uploading parameters
+  // (e.g., buffer containing device buffer address) to the GPU. Larger sizes
+  // better support more concurrent/complex command buffers.
+  iree_host_size_t device_parameter_buffer_size;
 } iree_hal_vulkan_device_options_t;
 
 IREE_API_EXPORT void iree_hal_vulkan_device_options_initialize(

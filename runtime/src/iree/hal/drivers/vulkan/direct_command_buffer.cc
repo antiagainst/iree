@@ -11,13 +11,13 @@
 
 #include "iree/base/api.h"
 #include "iree/base/internal/inline_array.h"
-#include "iree/base/internal/math.h"
 #include "iree/hal/drivers/vulkan/base_buffer.h"
 #include "iree/hal/drivers/vulkan/descriptor_set_arena.h"
 #include "iree/hal/drivers/vulkan/dynamic_symbols.h"
 #include "iree/hal/drivers/vulkan/native_event.h"
 #include "iree/hal/drivers/vulkan/native_executable.h"
 #include "iree/hal/drivers/vulkan/native_pipeline_layout.h"
+#include "iree/hal/drivers/vulkan/parameter_buffer.h"
 #include "iree/hal/drivers/vulkan/status_util.h"
 #include "iree/hal/drivers/vulkan/util/ref_ptr.h"
 #include "iree/hal/utils/resource_set.h"
@@ -37,6 +37,9 @@ typedef struct iree_hal_vulkan_direct_command_buffer_t {
   VkCommandBuffer handle;
 
   DynamicSymbols* syms;
+
+  // Per-device shared uniform staging buffer for uploading parameters to GPU.
+  iree_hal_vulkan_parameter_buffer_t* parameter_buffer;
 
   // Maintains a reference to all resources used within the command buffer.
   // Reset on each begin.
@@ -77,6 +80,7 @@ iree_status_t iree_hal_vulkan_direct_command_buffer_allocate(
     iree_hal_device_t* device,
     iree::hal::vulkan::VkDeviceHandle* logical_device,
     iree::hal::vulkan::VkCommandPoolHandle* command_pool,
+    iree_hal_vulkan_parameter_buffer_t* parameter_buffer,
     iree_hal_command_buffer_mode_t mode,
     iree_hal_command_category_t command_categories,
     iree_hal_queue_affinity_t queue_affinity, iree_host_size_t binding_capacity,
@@ -125,6 +129,7 @@ iree_status_t iree_hal_vulkan_direct_command_buffer_allocate(
     command_buffer->command_pool = command_pool;
     command_buffer->handle = handle;
     command_buffer->syms = logical_device->syms().get();
+    command_buffer->parameter_buffer = parameter_buffer;
 
     new (&command_buffer->descriptor_set_arena)
         DescriptorSetArena(descriptor_pool_cache);
@@ -697,6 +702,14 @@ static iree_status_t iree_hal_vulkan_direct_command_buffer_push_descriptor_set(
     const iree_hal_descriptor_set_binding_t* bindings) {
   iree_hal_vulkan_direct_command_buffer_t* command_buffer =
       iree_hal_vulkan_direct_command_buffer_cast(base_command_buffer);
+  iree_hal_descriptor_set_layout_t* set_layout =
+      iree_hal_vulkan_native_pipeline_layout_set(pipeline_layout, set);
+  iree_hal_descriptor_set_layout_flags_t flags =
+      iree_hal_vulkan_native_descriptor_set_layout_flags(set_layout);
+  if (iree_all_bits_set(flags, IREE_HAL_DESCRIPTOR_SET_LAYOUT_FLAG_INDIRECT)) {
+    return iree_make_status(IREE_STATUS_UNIMPLEMENTED,
+                            "indirect bindings not yet implemented");
+  }
 
   // TODO(benvanik): batch insert by getting the resources in their own list.
   for (iree_host_size_t i = 0; i < binding_count; ++i) {

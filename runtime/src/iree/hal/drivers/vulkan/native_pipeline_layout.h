@@ -35,6 +35,11 @@ iree_status_t iree_hal_vulkan_native_descriptor_set_layout_create(
 VkDescriptorSetLayout iree_hal_vulkan_native_descriptor_set_layout_handle(
     iree_hal_descriptor_set_layout_t* base_descriptor_set_layout);
 
+// Returns the flags used to create |base_descriptor_set_layout|.
+iree_hal_descriptor_set_layout_flags_t
+iree_hal_vulkan_native_descriptor_set_layout_flags(
+    iree_hal_descriptor_set_layout_t* base_descriptor_set_layout);
+
 //===----------------------------------------------------------------------===//
 // iree_hal_vulkan_native_pipeline_layout_t
 //===----------------------------------------------------------------------===//

@@ -51,6 +51,8 @@ iree_cc_library(
     "native_semaphore.h"
     "nop_executable_cache.cc"
     "nop_executable_cache.h"
+    "parameter_buffer.c"
+    "parameter_buffer.h"
     "sparse_buffer.cc"
     "sparse_buffer.h"
     "status_util.c"

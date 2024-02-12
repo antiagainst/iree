@@ -12,6 +12,7 @@
 #include "iree/hal/drivers/vulkan/builtin_executables.h"
 #include "iree/hal/drivers/vulkan/descriptor_pool_cache.h"
 #include "iree/hal/drivers/vulkan/handle_util.h"
+#include "iree/hal/drivers/vulkan/parameter_buffer.h"
 #include "iree/hal/drivers/vulkan/tracing.h"
 
 #ifdef __cplusplus
@@ -28,6 +29,7 @@ iree_status_t iree_hal_vulkan_direct_command_buffer_allocate(
     iree_hal_device_t* device,
     iree::hal::vulkan::VkDeviceHandle* logical_device,
     iree::hal::vulkan::VkCommandPoolHandle* command_pool,
+    iree_hal_vulkan_parameter_buffer_t* parameter_buffer,
     iree_hal_command_buffer_mode_t mode,
     iree_hal_command_category_t command_categories,
     iree_hal_queue_affinity_t queue_affinity, iree_host_size_t binding_capacity,

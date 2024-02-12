@@ -26,6 +26,7 @@ typedef struct iree_hal_vulkan_native_descriptor_set_layout_t {
   iree_hal_resource_t resource;
   VkDeviceHandle* logical_device;
   VkDescriptorSetLayout handle;
+  iree_hal_descriptor_set_layout_flags_t flags;
 } iree_hal_vulkan_native_descriptor_set_layout_t;
 
 namespace {
@@ -127,6 +128,7 @@ iree_status_t iree_hal_vulkan_native_descriptor_set_layout_create(
         &descriptor_set_layout->resource);
     descriptor_set_layout->logical_device = logical_device;
     descriptor_set_layout->handle = handle;
+    descriptor_set_layout->flags = flags;
     *out_descriptor_set_layout =
         (iree_hal_descriptor_set_layout_t*)descriptor_set_layout;
   } else {
@@ -159,6 +161,15 @@ VkDescriptorSetLayout iree_hal_vulkan_native_descriptor_set_layout_handle(
       iree_hal_vulkan_native_descriptor_set_layout_cast(
           base_descriptor_set_layout);
   return descriptor_set_layout->handle;
+}
+
+iree_hal_descriptor_set_layout_flags_t
+iree_hal_vulkan_native_descriptor_set_layout_flags(
+    iree_hal_descriptor_set_layout_t* base_descriptor_set_layout) {
+  iree_hal_vulkan_native_descriptor_set_layout_t* descriptor_set_layout =
+      iree_hal_vulkan_native_descriptor_set_layout_cast(
+          base_descriptor_set_layout);
+  return descriptor_set_layout->flags;
 }
 
 namespace {

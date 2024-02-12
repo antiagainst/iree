@@ -27,6 +27,7 @@
 #include "iree/hal/drivers/vulkan/native_pipeline_layout.h"
 #include "iree/hal/drivers/vulkan/native_semaphore.h"
 #include "iree/hal/drivers/vulkan/nop_executable_cache.h"
+#include "iree/hal/drivers/vulkan/parameter_buffer.h"
 #include "iree/hal/drivers/vulkan/status_util.h"
 #include "iree/hal/drivers/vulkan/tracing.h"
 #include "iree/hal/drivers/vulkan/util/arena.h"
@@ -508,6 +509,8 @@ typedef struct iree_hal_vulkan_device_t {
   iree_allocator_t host_allocator;
   iree_hal_allocator_t* device_allocator;
 
+  iree_hal_vulkan_parameter_buffer_t parameter_buffer;
+
   // Optional provider used for creating/configuring collective channels.
   iree_hal_channel_provider_t* channel_provider;
 
@@ -555,6 +558,8 @@ static iree_hal_vulkan_device_t* iree_hal_vulkan_device_cast(
 IREE_API_EXPORT void iree_hal_vulkan_device_options_initialize(
     iree_hal_vulkan_device_options_t* out_options) {
   memset(out_options, 0, sizeof(*out_options));
+  out_options->device_parameter_buffer_size =
+      IREE_HAL_VULKAN_PARAMETER_BUFFER_DEFAULT_CAPACITY;
   out_options->flags = 0;
 }
 
@@ -758,6 +763,13 @@ static iree_status_t iree_hal_vulkan_device_create_internal(
       options, instance, physical_device, logical_device,
       &device->device_allocator);
 
+  // Create parameter buffer for uploading data to GPU.
+  if (iree_status_is_ok(status)) {
+    status = iree_hal_vulkan_parameter_buffer_initialize(
+        options->device_parameter_buffer_size, device->device_allocator,
+        &device->parameter_buffer);
+  }
+
   // Create command pools for each queue family. If we don't have a transfer
   // queue then we'll ignore that one and just use the dispatch pool.
   // If we wanted to expose the pools through the HAL to allow the VM to more
@@ -830,6 +842,8 @@ static void iree_hal_vulkan_device_destroy(iree_hal_device_t* base_device) {
   // Finally, destroy the device.
   device->logical_device->ReleaseReference();
   iree_hal_driver_release(device->driver);
+
+  iree_hal_vulkan_parameter_buffer_deinitialize(&device->parameter_buffer);
 
   iree_allocator_free(host_allocator, device);
 
@@ -1544,9 +1558,9 @@ static iree_status_t iree_hal_vulkan_device_create_command_buffer(
       device, command_categories, queue_affinity);
 
   return iree_hal_vulkan_direct_command_buffer_allocate(
-      base_device, device->logical_device, command_pool, mode,
-      command_categories, queue_affinity, binding_capacity,
-      queue->tracing_context(), device->descriptor_pool_cache,
+      base_device, device->logical_device, command_pool,
+      &device->parameter_buffer, mode, command_categories, queue_affinity,
+      binding_capacity, queue->tracing_context(), device->descriptor_pool_cache,
       device->builtin_executables, &device->block_pool, out_command_buffer);
 }
 
