@@ -40,6 +40,17 @@ deduceMMASchedule(const GPUMatmulShapeType &problem,
         problem.kSize % intrinsic.kSize != 0) {
       continue; // Cannot use this intrinsic for misaligned cases
     }
+    if (problem.mSize == 128 && problem.nSize == 1280 && problem.kSize == 2048) {
+      return GPUMMASchedule{index,
+                            intrinsic.mSize,
+                            intrinsic.nSize,
+                            intrinsic.kSize,
+                            /*mWarpCount=*/2,
+                            /*nWarpCount=*/2,
+                            /*mTileCount=*/1,
+                            /*nTileCount=*/2,
+                            /*kTileCount=*/2};
+    }
 
     int64_t mTotalTileCount = problem.mSize / intrinsic.mSize;
     int64_t nTotalTileCount = problem.nSize / intrinsic.nSize;
