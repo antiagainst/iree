@@ -29,6 +29,9 @@ struct GPUMMAHeuristicSeeds {
   int64_t bestMNTileCountPerSubgroup;
   // The best number of tiles along K dimension per subgroup
   int64_t bestKTileCountPerSubgroup;
+  // The minimal number of workgroups to create for the whole problem to fill
+  // the GPU
+  std::optional<int64_t> minWorkgroupCount;
 };
 
 struct GPUMMASchedule {

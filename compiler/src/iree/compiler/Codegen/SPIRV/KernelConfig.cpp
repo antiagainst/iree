@@ -908,7 +908,7 @@ LogicalResult setCooperativeMatrixConfig(
   }
 
   GPUMMAHeuristicSeeds seeds{numSubgroupsPerWorkgroup, numMNTilesPerSubgroup,
-                             numKTilesPerSubgroup};
+                             numKTilesPerSubgroup, std::nullopt};
 
   std::optional<GPUMMASchedule> schedule =
       deduceMMASchedule(problem, intrinsics, seeds);

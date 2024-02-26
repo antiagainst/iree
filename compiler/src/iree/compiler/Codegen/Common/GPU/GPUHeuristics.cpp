@@ -103,18 +103,61 @@ deduceMMASchedule(const GPUMatmulShapeType &problem,
         APInt(64, kTotalTileCount), APInt(64, seeds.bestKTileCountPerSubgroup));
     int64_t kTileCount = kGCD.getSExtValue();
 
+    GPUMMASchedule schedule{index,           intrinsic.mSize, intrinsic.nSize,
+                            intrinsic.kSize, mWarpCount,      nWarpCount,
+                            mTileCount,      nTileCount,      kTileCount};
     LLVM_DEBUG({
-      llvm::dbgs() << "chosen MMA schedule:\n";
-      llvm::dbgs() << "  intrinsic (M, N, K) = (" << intrinsic.mSize << ", "
-                   << intrinsic.nSize << ", " << intrinsic.kSize << ")\n";
-      llvm::dbgs() << "  subgroup count (M, N) = (" << mWarpCount << ", "
-                   << nWarpCount << ")\n";
-      llvm::dbgs() << "  subgroup tile count (M, N, K) = (" << mTileCount
-                   << ", " << nTileCount << ", " << kTileCount << ")\n";
+      llvm::dbgs() << "base MMA schedule:\n";
+      llvm::dbgs() << "  intrinsic (M, N, K) = (" << schedule.mSize << ", "
+                   << schedule.nSize << ", " << schedule.kSize << ")\n";
+      llvm::dbgs() << "  subgroup count (M, N) = (" << schedule.mWarpCount
+                   << ", " << schedule.nWarpCount << ")\n";
+      llvm::dbgs() << "  subgroup tile count (M, N, K) = ("
+                   << schedule.mTileCount << ", " << schedule.nTileCount << ", "
+                   << schedule.kTileCount << ")\n";
     });
-    return GPUMMASchedule{index,           intrinsic.mSize, intrinsic.nSize,
-                          intrinsic.kSize, mWarpCount,      nWarpCount,
-                          mTileCount,      nTileCount,      kTileCount};
+
+    // Now see if we are being too aggressive at taking a large workload in a
+    // single workgroup. We need to first make sure we generate enough
+    // workgroups to fill the whole GPU.
+
+    auto getScheduleWorkgroupCount = [&]() {
+      int64_t m = problem.mSize /
+                  (schedule.mWarpCount * schedule.mTileCount * schedule.mSize);
+      int64_t n = problem.nSize /
+                  (schedule.nWarpCount * schedule.nTileCount * schedule.nSize);
+      return m * n;
+    };
+
+    auto getMaxValue = [&]() -> int64_t * {
+      std::array<int64_t *, 4> params{
+          // First decrease tile counts per subgroup.
+          &schedule.mTileCount, &schedule.nTileCount,
+          // Then decrease the number of subgroups.
+          &schedule.mWarpCount, &schedule.nWarpCount};
+      return *std::max_element(params.begin(), params.end(),
+                               [](int64_t *a, int64_t *b) { return *a < *b; });
+    };
+
+    while (getScheduleWorkgroupCount() < seeds.minWorkgroupCount) {
+      int64_t *val = getMaxValue();
+      if (*val == 1)
+        break;
+      *val /= 2;
+    }
+
+    LLVM_DEBUG({
+      llvm::dbgs() << "workgroup count adjusted MMA schedule:\n";
+      llvm::dbgs() << "  intrinsic (M, N, K) = (" << schedule.mSize << ", "
+                   << schedule.nSize << ", " << schedule.kSize << ")\n";
+      llvm::dbgs() << "  subgroup count (M, N) = (" << schedule.mWarpCount
+                   << ", " << schedule.nWarpCount << ")\n";
+      llvm::dbgs() << "  subgroup tile count (M, N, K) = ("
+                   << schedule.mTileCount << ", " << schedule.nTileCount << ", "
+                   << schedule.kTileCount << ")\n";
+    });
+
+    return schedule;
   }
   return std::nullopt;
 }

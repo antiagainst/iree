@@ -345,7 +345,8 @@ setVectorDistributionConfig(mlir::FunctionOpInterface entryPoint,
   // See https://github.com/openxla/iree/issues/16341 for details.
   GPUMMAHeuristicSeeds seeds{/*bestSubgroupCountPerWorkgroup=*/4,
                              /*bestMNTileCountPerSubgroup=*/8,
-                             /*bestKTileCountPerSubgroup=*/2};
+                             /*bestKTileCountPerSubgroup=*/2,
+                             /*minWorkgroupCount=*/128};
 
   // First try to find a schedule with an exactly matching intrinsic.
   std::optional<GPUMMASchedule> schedule =
