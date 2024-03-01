@@ -18,6 +18,8 @@ typedef struct iree_hal_rocm_allocator_t {
   iree_hal_device_t* base_device;
   iree_hal_rocm_context_wrapper_t* context;
 
+  bool supports_concurrent_managed_access;
+
   IREE_STATISTICS(iree_hal_allocator_statistics_t statistics;)
 } iree_hal_rocm_allocator_t;
 
@@ -34,6 +36,28 @@ iree_status_t iree_hal_rocm_allocator_create(
     iree_hal_allocator_t** out_allocator) {
   IREE_ASSERT_ARGUMENT(context);
   IREE_TRACE_ZONE_BEGIN(z0);
+
+  // To support device-local + host-visible memory we need concurrent managed
+  // access indicating that the host and devices can concurrently access the
+  // device memory. If we don't have this feature then we fall back to forcing
+  // all device-local + host-visible memory into host-local + device-visible
+  // page-locked memory. The compiler tries to avoid this for high-traffic
+  // buffers except for readback staging buffers.
+  int supports_concurrent_managed_access = 0;
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, ROCM_RESULT_TO_STATUS(
+              context->syms,
+              hipDeviceGetAttribute(&supports_concurrent_managed_access,
+                                    hipDeviceAttributeConcurrentManagedAccess,
+                                    context->rocm_device),
+              "hipDeviceGetAttribute"));
+
+  IREE_TRACE_ZONE_APPEND_TEXT(
+      z0, supports_concurrent_managed_access
+              ? "has CONCURRENT_MANAGED_ACCESS"
+              : "no CONCURRENT_MANAGED_ACCESS (expect slow accesses on "
+                "device-local + host-visible memory)");
+
   iree_hal_rocm_allocator_t* allocator = NULL;
   iree_status_t status = iree_allocator_malloc(
       context->host_allocator, sizeof(*allocator), (void**)&allocator);
@@ -41,6 +65,8 @@ iree_status_t iree_hal_rocm_allocator_create(
     iree_hal_resource_initialize(&iree_hal_rocm_allocator_vtable,
                                  &allocator->resource);
     allocator->context = context;
+    allocator->supports_concurrent_managed_access =
+        supports_concurrent_managed_access != 0;
     *out_allocator = (iree_hal_allocator_t*)allocator;
   }
 
@@ -141,6 +167,9 @@ iree_hal_rocm_allocator_query_buffer_compatibility(
     iree_hal_allocator_t* IREE_RESTRICT base_allocator,
     iree_hal_buffer_params_t* IREE_RESTRICT params,
     iree_device_size_t* IREE_RESTRICT allocation_size) {
+  iree_hal_rocm_allocator_t* allocator =
+      iree_hal_rocm_allocator_cast(base_allocator);
+
   // All buffers can be allocated on the heap.
   iree_hal_buffer_compatibility_t compatibility =
       IREE_HAL_BUFFER_COMPATIBILITY_ALLOCATABLE;
@@ -151,9 +180,28 @@ iree_hal_rocm_allocator_query_buffer_compatibility(
 
   // Buffers can only be used on the queue if they are device visible.
   if (iree_all_bits_set(params->type, IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE)) {
+    if (iree_any_bit_set(params->usage, IREE_HAL_BUFFER_USAGE_TRANSFER)) {
+      compatibility |= IREE_HAL_BUFFER_COMPATIBILITY_QUEUE_TRANSFER;
+    }
     if (iree_any_bit_set(params->usage,
                          IREE_HAL_BUFFER_USAGE_DISPATCH_STORAGE)) {
       compatibility |= IREE_HAL_BUFFER_COMPATIBILITY_QUEUE_DISPATCH;
+    }
+  }
+
+  if (iree_all_bits_set(params->type, IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL |
+                                          IREE_HAL_MEMORY_TYPE_HOST_VISIBLE)) {
+    compatibility |= IREE_HAL_BUFFER_COMPATIBILITY_LOW_PERFORMANCE;
+    // If concurrent managed access is not supported then make device-local +
+    // host-visible allocations fall back to host-local + device-visible
+    // page-locked memory. This will be significantly slower for the device to
+    // access but the compiler only uses this type for readback staging buffers
+    // and it's better to function than function fast.
+    if (!allocator->supports_concurrent_managed_access) {
+      params->type &= ~(IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL |
+                        IREE_HAL_MEMORY_TYPE_HOST_VISIBLE);
+      params->type |=
+          IREE_HAL_MEMORY_TYPE_HOST_LOCAL | IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE;
     }
   }
 
@@ -169,16 +217,36 @@ iree_hal_rocm_allocator_query_buffer_compatibility(
 }
 
 static void iree_hal_rocm_buffer_free(iree_hal_rocm_context_wrapper_t* context,
-                                      iree_hal_memory_type_t memory_type,
+                                      iree_hal_rocm_buffer_type_t buffer_type,
                                       hipDeviceptr_t device_ptr,
                                       void* host_ptr) {
-  if (iree_all_bits_set(memory_type, IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL)) {
-    // Device local.
-    ROCM_IGNORE_ERROR(context->syms, hipFree(device_ptr));
-  } else {
-    // Host local.
-    ROCM_IGNORE_ERROR(context->syms, hipHostFree(host_ptr));
+  IREE_TRACE_ZONE_BEGIN(z0);
+  switch (buffer_type) {
+    case IREE_HAL_ROCM_BUFFER_TYPE_DEVICE: {
+      IREE_TRACE_ZONE_APPEND_TEXT(z0, "hipFree");
+      ROCM_IGNORE_ERROR(context->syms, hipFree(device_ptr));
+      break;
+    }
+    case IREE_HAL_ROCM_BUFFER_TYPE_HOST: {
+      IREE_TRACE_ZONE_APPEND_TEXT(z0, "hipHostFree");
+      ROCM_IGNORE_ERROR(context->syms, hipHostFree(host_ptr));
+      break;
+    }
+    case IREE_HAL_ROCM_BUFFER_TYPE_HOST_REGISTERED: {
+      IREE_TRACE_ZONE_APPEND_TEXT(z0, "hipHostUnregister");
+      ROCM_IGNORE_ERROR(context->syms, hipHostUnregister(host_ptr));
+      break;
+    }
+    case IREE_HAL_ROCM_BUFFER_TYPE_ASYNC: {
+      IREE_TRACE_ZONE_APPEND_TEXT(z0, "(ignored; async)");
+      break;
+    }
+    case IREE_HAL_ROCM_BUFFER_TYPE_EXTERNAL: {
+      IREE_TRACE_ZONE_APPEND_TEXT(z0, "(ignored; external)");
+      break;
+    }
   }
+  IREE_TRACE_ZONE_END(z0);
 }
 
 static iree_status_t iree_hal_rocm_allocator_allocate_buffer(
@@ -199,6 +267,7 @@ static iree_status_t iree_hal_rocm_allocator_allocate_buffer(
   }
 
   iree_status_t status = iree_ok_status();
+  iree_hal_rocm_buffer_type_t buffer_type = IREE_HAL_ROCM_BUFFER_TYPE_DEVICE;
   void* host_ptr = NULL;
   hipDeviceptr_t device_ptr = 0;
   if (iree_all_bits_set(compat_params.type,
@@ -206,16 +275,28 @@ static iree_status_t iree_hal_rocm_allocator_allocate_buffer(
     // Device local case.
     if (iree_all_bits_set(compat_params.type,
                           IREE_HAL_MEMORY_TYPE_HOST_VISIBLE)) {
+      buffer_type = IREE_HAL_ROCM_BUFFER_TYPE_DEVICE;
       status = ROCM_RESULT_TO_STATUS(
           allocator->context->syms,
           hipMallocManaged(&device_ptr, allocation_size, hipMemAttachGlobal));
+      if (iree_status_is_ok(status) &&
+          allocator->supports_concurrent_managed_access) {
+        // Prefetch the buffer on the GPU device.
+        status = ROCM_RESULT_TO_STATUS(
+            allocator->context->syms,
+            hipMemPrefetchAsync(device_ptr, allocation_size,
+                                allocator->context->rocm_device,
+                                allocator->context->rocm_stream));
+      }
       host_ptr = (void*)device_ptr;
     } else {
       // Device only.
+      buffer_type = IREE_HAL_ROCM_BUFFER_TYPE_DEVICE;
       status = ROCM_RESULT_TO_STATUS(allocator->context->syms,
                                      hipMalloc(&device_ptr, allocation_size));
     }
   } else {
+    buffer_type = IREE_HAL_ROCM_BUFFER_TYPE_HOST;
     unsigned int flags = hipHostMallocMapped;
     if (!iree_all_bits_set(compat_params.type,
                            IREE_HAL_MEMORY_TYPE_HOST_CACHED)) {
@@ -236,8 +317,8 @@ static iree_status_t iree_hal_rocm_allocator_allocate_buffer(
     status = iree_hal_rocm_buffer_wrap(
         (iree_hal_allocator_t*)allocator, compat_params.type,
         compat_params.access, compat_params.usage, allocation_size,
-        /*byte_offset=*/0,
-        /*byte_length=*/allocation_size, device_ptr, host_ptr, &buffer);
+        /*byte_offset=*/0, /*byte_length=*/allocation_size, buffer_type,
+        device_ptr, host_ptr, iree_hal_buffer_release_callback_null(), &buffer);
   }
 
   if (iree_status_is_ok(status)) {
@@ -246,8 +327,8 @@ static iree_status_t iree_hal_rocm_allocator_allocate_buffer(
     *out_buffer = buffer;
   } else {
     if (!buffer) {
-      iree_hal_rocm_buffer_free(allocator->context, compat_params.type,
-                                device_ptr, host_ptr);
+      iree_hal_rocm_buffer_free(allocator->context, buffer_type, device_ptr,
+                                host_ptr);
     } else {
       iree_hal_buffer_release(buffer);
     }
@@ -262,7 +343,8 @@ static void iree_hal_rocm_allocator_deallocate_buffer(
       iree_hal_rocm_allocator_cast(base_allocator);
 
   iree_hal_memory_type_t memory_type = iree_hal_buffer_memory_type(base_buffer);
-  iree_hal_rocm_buffer_free(allocator->context, memory_type,
+  iree_hal_rocm_buffer_free(allocator->context,
+                            iree_hal_rocm_buffer_type(base_buffer),
                             iree_hal_rocm_buffer_device_pointer(base_buffer),
                             iree_hal_rocm_buffer_host_pointer(base_buffer));
 
@@ -279,8 +361,101 @@ static iree_status_t iree_hal_rocm_allocator_import_buffer(
     iree_hal_external_buffer_t* IREE_RESTRICT external_buffer,
     iree_hal_buffer_release_callback_t release_callback,
     iree_hal_buffer_t** IREE_RESTRICT out_buffer) {
-  return iree_make_status(IREE_STATUS_UNAVAILABLE,
-                          "importing from external buffers not supported");
+  iree_hal_rocm_allocator_t* allocator =
+      iree_hal_rocm_allocator_cast(base_allocator);
+
+  // Coerce options into those required by the current device.
+  iree_hal_buffer_params_t compat_params = *params;
+  iree_device_size_t allocation_size = external_buffer->size;
+  iree_hal_buffer_compatibility_t compatibility =
+      iree_hal_rocm_allocator_query_buffer_compatibility(
+          base_allocator, &compat_params, &allocation_size);
+  if (!iree_all_bits_set(compatibility,
+                         IREE_HAL_BUFFER_COMPATIBILITY_IMPORTABLE)) {
+#if IREE_STATUS_MODE
+    iree_bitfield_string_temp_t temp0, temp1, temp2;
+    iree_string_view_t memory_type_str =
+        iree_hal_memory_type_format(params->type, &temp0);
+    iree_string_view_t usage_str =
+        iree_hal_buffer_usage_format(params->usage, &temp1);
+    iree_string_view_t compatibility_str =
+        iree_hal_buffer_compatibility_format(compatibility, &temp2);
+    return iree_make_status(
+        IREE_STATUS_INVALID_ARGUMENT,
+        "allocator cannot import a buffer with the given parameters; "
+        "memory_type=%.*s, usage=%.*s, compatibility=%.*s",
+        (int)memory_type_str.size, memory_type_str.data, (int)usage_str.size,
+        usage_str.data, (int)compatibility_str.size, compatibility_str.data);
+#else
+    return iree_make_status(
+        IREE_STATUS_INVALID_ARGUMENT,
+        "allocator cannot import a buffer with the given parameters");
+#endif  // IREE_STATUS_MODE
+  }
+
+  iree_status_t status = iree_ok_status();
+  iree_hal_rocm_buffer_type_t buffer_type = IREE_HAL_ROCM_BUFFER_TYPE_DEVICE;
+  void* host_ptr = NULL;
+  hipDeviceptr_t device_ptr = NULL;
+
+  switch (external_buffer->type) {
+    case IREE_HAL_EXTERNAL_BUFFER_TYPE_HOST_ALLOCATION: {
+      if (iree_all_bits_set(compat_params.type,
+                            IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL)) {
+        return iree_make_status(
+            IREE_STATUS_INVALID_ARGUMENT,
+            "unable to register host allocations as device-local memory");
+      }
+      buffer_type = IREE_HAL_ROCM_BUFFER_TYPE_HOST_REGISTERED;
+      host_ptr = external_buffer->handle.host_allocation.ptr;
+      uint32_t register_flags = hipHostRegisterMapped;
+      status = ROCM_RESULT_TO_STATUS(
+          allocator->context->syms,
+          hipHostRegister(host_ptr, external_buffer->size, register_flags),
+          "hipHostRegister");
+      if (iree_status_is_ok(status)) {
+        status = ROCM_RESULT_TO_STATUS(
+            allocator->context->syms,
+            hipHostGetDevicePointer(&device_ptr, host_ptr, 0),
+            "hipHostGetDevicePointer");
+      }
+      break;
+    }
+    case IREE_HAL_EXTERNAL_BUFFER_TYPE_DEVICE_ALLOCATION: {
+      buffer_type = IREE_HAL_ROCM_BUFFER_TYPE_EXTERNAL;
+      device_ptr =
+          (hipDeviceptr_t)external_buffer->handle.device_allocation.ptr;
+      break;
+    }
+    case IREE_HAL_EXTERNAL_BUFFER_TYPE_OPAQUE_FD:
+    case IREE_HAL_EXTERNAL_BUFFER_TYPE_OPAQUE_WIN32:
+      return iree_make_status(IREE_STATUS_UNIMPLEMENTED,
+                              "handle-based imports not yet implemented");
+    default:
+      return iree_make_status(IREE_STATUS_UNIMPLEMENTED,
+                              "external buffer type not supported");
+  }
+
+  iree_hal_buffer_t* buffer = NULL;
+  if (iree_status_is_ok(status)) {
+    status = iree_hal_rocm_buffer_wrap(
+        base_allocator, compat_params.type, compat_params.access,
+        compat_params.usage, external_buffer->size,
+        /*byte_offset=*/0, /*byte_length=*/external_buffer->size, buffer_type,
+        device_ptr, host_ptr, release_callback, &buffer);
+  }
+
+  if (iree_status_is_ok(status)) {
+    *out_buffer = buffer;
+  } else {
+    if (!buffer && (device_ptr || host_ptr)) {
+      iree_hal_rocm_buffer_free(allocator->context, buffer_type, device_ptr,
+                                host_ptr);
+    } else {
+      iree_hal_buffer_release(buffer);
+    }
+  }
+  return status;
 }
 
 static iree_status_t iree_hal_rocm_allocator_export_buffer(
