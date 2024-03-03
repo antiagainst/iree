@@ -305,6 +305,7 @@ static void iree_hal_cuda_device_destroy(iree_hal_device_t* base_device) {
   iree_allocator_t host_allocator = iree_hal_device_host_allocator(base_device);
   const iree_hal_cuda_dynamic_symbols_t* symbols = device->cuda_symbols;
   IREE_TRACE_ZONE_BEGIN(z0);
+  printf("[hip] start destroying device\n");
 
   // Destroy the pending workload queue.
   iree_hal_cuda_pending_queue_actions_destroy(
@@ -341,6 +342,7 @@ static void iree_hal_cuda_device_destroy(iree_hal_device_t* base_device) {
   iree_hal_driver_release(device->driver);
 
   iree_allocator_free(host_allocator, device);
+  printf("[hip] done destroying device\n");
 
   IREE_TRACE_ZONE_END(z0);
 }

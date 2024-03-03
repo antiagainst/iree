@@ -345,6 +345,7 @@ void iree_hal_hip_pending_queue_actions_destroy(
   iree_hal_hip_working_area_t* working_area = &actions->working_area;
   IREE_TRACE_ZONE_BEGIN(z0);
 
+  printf("[hip] start destroying pending actions queue\n");
   // Request the worker to exit.
   iree_hal_hip_worker_state_t prev_state =
       (iree_hal_hip_worker_state_t)iree_atomic_exchange_int32(
@@ -354,11 +355,13 @@ void iree_hal_hip_pending_queue_actions_destroy(
 
   // Check potential exit states from the worker.
   if (prev_state != IREE_HAL_HIP_WORKER_STATE_EXIT_ERROR) {
+    printf("[hip] start waiting thread to exit\n");
     // Wait until the worker acknowledged exiting.
     iree_notification_await(
         &working_area->exit_notification,
         (iree_condition_fn_t)iree_hal_hip_worker_committed_exiting,
         working_area, iree_infinite_timeout());
+    printf("[hip] done waiting thread to exit\n");
   }
 
   // Now we can delete worker related resources.
@@ -369,6 +372,7 @@ void iree_hal_hip_pending_queue_actions_destroy(
   iree_hal_hip_queue_action_list_free_actions(host_allocator,
                                               &actions->action_list);
   iree_allocator_free(host_allocator, actions);
+  printf("[hip] done destroying pending actions queue\n");
 
   IREE_TRACE_ZONE_END(z0);
 }
@@ -447,6 +451,7 @@ iree_status_t iree_hal_hip_pending_queue_actions_enqueue_execution(
   IREE_RETURN_AND_END_ZONE_IF_ERROR(
       z0, iree_allocator_malloc(actions->host_allocator, sizeof(*action),
                                 (void**)&action));
+  printf("[hip] start enqueue action %p\n", action);
 
   action->owning_actions = actions;
   action->state = IREE_HAL_HIP_QUEUE_ACTION_STATE_ALIVE;
@@ -498,11 +503,32 @@ iree_status_t iree_hal_hip_pending_queue_actions_enqueue_execution(
     status = iree_hal_hip_copy_semaphore_list(wait_semaphore_list,
                                               actions->host_allocator,
                                               &action->wait_semaphore_list);
+    printf("[hip] src wait semaphore count = %d\n",
+           (int)wait_semaphore_list.count);
+    for (iree_host_size_t i = 0; i < wait_semaphore_list.count; ++i) {
+      printf("[hip]   wait %p to %d\n",
+             wait_semaphore_list.semaphores[i],
+             (int)wait_semaphore_list.payload_values[i]);
+    }
   }
   if (IREE_LIKELY(iree_status_is_ok(status))) {
     status = iree_hal_hip_copy_semaphore_list(signal_semaphore_list,
                                               actions->host_allocator,
                                               &action->signal_semaphore_list);
+    printf("[hip] src signal semaphore count = %d\n",
+           (int)signal_semaphore_list.count);
+    for (iree_host_size_t i = 0; i < signal_semaphore_list.count; ++i) {
+      printf("[hip]   semaphore %p to %d\n",
+             signal_semaphore_list.semaphores[i],
+             (int)signal_semaphore_list.payload_values[i]);
+    }
+    printf("[hip] dst signal semaphore count = %d\n",
+           (int)action->signal_semaphore_list.count);
+    for (iree_host_size_t i = 0; i < action->signal_semaphore_list.count; ++i) {
+      printf("[hip]   semaphore %p to %d\n",
+             action->signal_semaphore_list.semaphores[i],
+             (int)action->signal_semaphore_list.payload_values[i]);
+    }
   }
 
   if (IREE_LIKELY(iree_status_is_ok(status))) {
@@ -524,6 +550,7 @@ iree_status_t iree_hal_hip_pending_queue_actions_enqueue_execution(
     iree_allocator_free(actions->host_allocator, action);
   }
 
+  printf("[hip] done enqueue action %p\n", action);
   IREE_TRACE_ZONE_END(z0);
   return status;
 }
@@ -540,6 +567,7 @@ static void iree_hal_hip_execution_device_signal_host_callback(
   iree_hal_hip_queue_action_t* action = (iree_hal_hip_queue_action_t*)user_data;
   IREE_ASSERT_EQ(action->kind, IREE_HAL_HIP_QUEUE_ACTION_TYPE_EXECUTION);
   IREE_ASSERT_EQ(action->state, IREE_HAL_HIP_QUEUE_ACTION_STATE_ALIVE);
+  printf("[hip] start host callback for action %p\n", action);
   iree_hal_hip_pending_queue_actions_t* actions = action->owning_actions;
 
   // Flip the action state to zombie and enqueue it again so that we can let
@@ -547,6 +575,13 @@ static void iree_hal_hip_execution_device_signal_host_callback(
   // may involve GPU API calls like buffer releasing or unregistering, so we can
   // not inline it here.
   action->state = IREE_HAL_HIP_QUEUE_ACTION_STATE_ZOMBIE;
+  printf("[hip] signal semaphore count = %d\n",
+         (int)action->signal_semaphore_list.count);
+  for (iree_host_size_t i = 0; i < action->signal_semaphore_list.count; ++i) {
+    printf("[hip]   semaphore %p to %d\n",
+           action->signal_semaphore_list.semaphores[i],
+           (int)action->signal_semaphore_list.payload_values[i]);
+  }
   iree_slim_mutex_lock(&actions->action_mutex);
   iree_hal_hip_queue_action_list_push_back(&actions->action_list, action);
   iree_slim_mutex_unlock(&actions->action_mutex);
@@ -568,6 +603,7 @@ static void iree_hal_hip_execution_device_signal_host_callback(
   IREE_IGNORE_ERROR(
       iree_hal_semaphore_list_signal(action->signal_semaphore_list));
 
+  printf("[hip] done host callback for action %p\n", action);
   IREE_TRACE_ZONE_END(z0);
 }
 
@@ -579,6 +615,7 @@ static iree_status_t iree_hal_hip_pending_queue_actions_issue_execution(
   const iree_hal_hip_dynamic_symbols_t* symbols =
       action->owning_actions->symbols;
   IREE_TRACE_ZONE_BEGIN(z0);
+  printf("[hip] start issuing exec action %p\n", action);
 
   // No need to lock given that this action is already detched from the pending
   // actions list; so only this thread is seeing it now.
@@ -622,6 +659,14 @@ static iree_status_t iree_hal_hip_pending_queue_actions_issue_execution(
     }
   }
 
+  printf("[hip] signal semaphore count = %d\n",
+         (int)action->signal_semaphore_list.count);
+  for (iree_host_size_t i = 0; i < action->signal_semaphore_list.count; ++i) {
+    printf("[hip]   semaphore %p to %d\n",
+           action->signal_semaphore_list.semaphores[i],
+           (int)action->signal_semaphore_list.payload_values[i]);
+  }
+
   // Last record hipEvent_t signals in the dispatch stream.
   for (iree_host_size_t i = 0; i < action->signal_semaphore_list.count; ++i) {
     // Grab a hipEvent_t for this semaphore value signaling.
@@ -655,6 +700,7 @@ static iree_status_t iree_hal_hip_pending_queue_actions_issue_execution(
                         action),
       "hipLaunchHostFunc");
 
+  printf("[hip] done issuing exec action %p\n", action);
   IREE_TRACE_ZONE_END(z0);
   return iree_ok_status();
 }
@@ -665,6 +711,7 @@ static iree_status_t iree_hal_hip_pending_queue_actions_issue_cleanup(
   iree_hal_hip_pending_queue_actions_t* actions = action->owning_actions;
   iree_allocator_t host_allocator = actions->host_allocator;
   IREE_TRACE_ZONE_BEGIN(z0);
+  printf("[hip] start issuing cleanup action %p\n", action);
 
   // Call user provided callback before releasing any resource.
   if (action->cleanup_callback) {
@@ -683,6 +730,7 @@ static iree_status_t iree_hal_hip_pending_queue_actions_issue_cleanup(
 
   iree_allocator_free(host_allocator, action);
 
+  printf("[hip] done issuing cleanup action %p\n", action);
   // Now we fully executed and cleaned up this action. Decrease the pending
   // action counter.
   --actions->working_area.pending_action_count;
@@ -694,6 +742,7 @@ static iree_status_t iree_hal_hip_pending_queue_actions_issue_cleanup(
 iree_status_t iree_hal_hip_pending_queue_actions_issue(
     iree_hal_hip_pending_queue_actions_t* actions) {
   IREE_TRACE_ZONE_BEGIN(z0);
+  printf("[hip] start scanning and issuing actions..\n");
 
   iree_hal_hip_queue_action_list_t pending_list = {NULL, NULL};
   iree_hal_hip_queue_action_list_t ready_list = {NULL, NULL};
@@ -702,6 +751,7 @@ iree_status_t iree_hal_hip_pending_queue_actions_issue(
 
   if (iree_hal_hip_queue_action_list_is_empty(&actions->action_list)) {
     iree_slim_mutex_unlock(&actions->action_mutex);
+    printf("[hip] nothing to issue\n");
     IREE_TRACE_ZONE_END(z0);
     return iree_ok_status();
   }
@@ -710,6 +760,7 @@ iree_status_t iree_hal_hip_pending_queue_actions_issue(
   iree_status_t status = iree_ok_status();
   iree_hal_hip_queue_action_t* action = actions->action_list.head;
   while (action) {
+    printf("[hip] current action %p\n", action);
     iree_hal_hip_queue_action_t* next_action = action->next;
     action->next = NULL;
 
@@ -758,8 +809,10 @@ iree_status_t iree_hal_hip_pending_queue_actions_issue(
     if (IREE_UNLIKELY(!iree_status_is_ok(status))) break;
 
     if (action->is_pending) {
+      printf("[hip]   action still pending.\n");
       iree_hal_hip_queue_action_list_push_back(&pending_list, action);
     } else {
+      printf("[hip]   action is ready.\n");
       iree_hal_hip_queue_action_list_push_back(&ready_list, action);
     }
 
@@ -800,6 +853,7 @@ iree_status_t iree_hal_hip_pending_queue_actions_issue(
     IREE_TRACE_ZONE_END(z0);
     return status;
   }
+  printf("[hip] start to push to ready list and wake up worker\n");
 
   // Now push the ready list to the worker and have it to issue the actions to
   // the GPU.
@@ -817,6 +871,7 @@ iree_status_t iree_hal_hip_pending_queue_actions_issue(
       /*desired=*/IREE_HAL_HIP_WORKER_STATE_WORKLOAD_PENDING,
       /*order_succ=*/iree_memory_order_acq_rel,
       /*order_fail=*/iree_memory_order_acquire);
+  printf("[hip] prev state = %d\n", prev_state);
   iree_notification_post(&actions->working_area.state_notification,
                          IREE_ALL_WAITERS);
 
@@ -827,6 +882,7 @@ iree_status_t iree_hal_hip_pending_queue_actions_issue(
     status = iree_status_from_code(code);
   }
 
+  printf("[hip] done posting to the worker\n");
   IREE_TRACE_ZONE_END(z0);
   return status;
 }
@@ -897,11 +953,16 @@ static int iree_hal_hip_worker_execute(
   iree_hal_hip_ready_action_slist_t* worklist = &working_area->ready_worklist;
 
   while (true) {
+    printf("[hip][thread] current state: %d\n",
+           iree_atomic_load_int32(&working_area->worker_state,
+                                  iree_memory_order_acquire));
+    printf("[hip][thread] start waiting requests\n");
     // Block waiting for incoming requests.
     iree_notification_await(
         &working_area->state_notification,
         (iree_condition_fn_t)iree_hal_hip_worker_has_incoming_request,
         working_area, iree_infinite_timeout());
+    printf("[hip][thread] done waiting requests\n");
 
     // Immediately flip the state to idle waiting if and only if the previous
     // state is workload pending. We do it before processing ready list to make
@@ -921,10 +982,13 @@ static int iree_hal_hip_worker_execute(
     bool should_exit = iree_atomic_load_int32(&working_area->worker_state,
                                               iree_memory_order_acquire) ==
                        IREE_HAL_HIP_WORKER_STATE_EXIT_REQUESTED;
+    printf("[hip][thread] should exit = %d\n", should_exit);
 
+    printf("[hip][thread] start processing ready list\n");
     // Process the ready list. We also want this even requested to exit.
     iree_status_t status = iree_hal_hip_worker_process_ready_list(
         working_area->host_allocator, worklist);
+    printf("[hip][thread] done processing ready list\n");
     if (IREE_UNLIKELY(!iree_status_is_ok(status))) {
       IREE_ASSERT(false && "error when processing ready list");
       iree_atomic_store_int32(&working_area->error_code,

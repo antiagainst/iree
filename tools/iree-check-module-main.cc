@@ -44,26 +44,34 @@ class CheckModuleTest : public ::testing::Test {
   ~CheckModuleTest() { iree_tooling_module_list_reset(&module_list_); }
 
   void SetUp() override {
+    printf("[check] start test setup\n");
     IREE_CHECK_OK(iree_tooling_create_context_from_flags(
         instance_, module_list_.count, module_list_.values,
         /*default_device_uri=*/iree_string_view_empty(),
         iree_vm_instance_allocator(instance_), &context_, &device_,
         /*out_device_allocator=*/NULL));
+    printf("[check] done test setup\n");
   }
 
   void TearDown() override {
+    printf("[check] start test teardown\n");
     iree_vm_context_release(context_);
     iree_hal_device_release(device_);
+    printf("[check] done test teardown\n");
   }
 
   void TestBody() override {
+    printf("[check] start test body\n");
     IREE_ASSERT_OK(iree_hal_begin_profiling_from_flags(device_));
+    printf("[check] start vm invoke\n");
     IREE_EXPECT_OK(iree_vm_invoke(context_, function_,
                                   IREE_VM_INVOCATION_FLAG_NONE,
                                   /*policy=*/nullptr,
                                   /*inputs=*/nullptr, /*outputs=*/nullptr,
                                   iree_vm_instance_allocator(instance_)));
+    printf("[check] done vm invoke\n");
     IREE_ASSERT_OK(iree_hal_end_profiling_from_flags(device_));
+    printf("[check] done test body\n");
   }
 
  private:
@@ -129,14 +137,18 @@ iree_status_t Run(iree_allocator_t host_allocator, int* out_exit_code) {
     }
 
     iree_string_view_t module_name = iree_vm_module_name(main_module);
+    printf("[check] start register test: %s\n", function_name.data);
     ::testing::RegisterTest(module_name.data, function_name.data, nullptr,
                             std::to_string(ordinal).c_str(), __FILE__, __LINE__,
                             [=]() -> CheckModuleTest* {
                               return new CheckModuleTest(instance, &module_list,
                                                          function);
                             });
+    printf("[check] done register test: %s\n", function_name.data);
   }
+  printf("[check] start testing functions\n");
   *out_exit_code = RUN_ALL_TESTS();
+  printf("[check] done testing functions\n");
 
   iree_tooling_module_list_reset(&module_list);
   iree_vm_module_release(check_module);

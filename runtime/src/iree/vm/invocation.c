@@ -299,8 +299,10 @@ IREE_API_EXPORT iree_status_t iree_vm_invoke(
   // complete the invocation before returning. If it yields we'll need to resume
   // it, possibly after taking care of pending waits.
   iree_vm_invoke_state_t state = {0};
+  printf("[vm] start vm begin invoke\n");
   iree_status_t status = iree_vm_begin_invoke(&state, context, function, flags,
                                               policy, inputs, host_allocator);
+  printf("[vm] done vm begin invoke\n");
   while (iree_status_is_deferred(status)) {
     // Grab the wait frame from the stack holding the wait parameters.
     // This is optional: if an invocation yields for cooperative scheduling
@@ -341,16 +343,20 @@ IREE_API_EXPORT iree_status_t iree_vm_invoke(
   // cleanly and get the invocation status as returned by the target function.
   iree_status_t invoke_status = iree_ok_status();
   if (iree_status_is_ok(status)) {
+    printf("[vm] start vm end invoke\n");
     status = iree_vm_end_invoke(&state, outputs, &invoke_status);
+    printf("[vm] done vm end invoke\n");
   }
 
   // Otherwise if we failed to invoke we need to tear down the state to release
   // all resources retained by the stack.
   if (!iree_status_is_ok(status)) {
+    printf("[vm] start vm abort invoke\n");
     // Cleanup the invocation state if the end wasn't able to.
     // This may leave the context in an unexpected state but the caller is
     // expected to tear down everything if this happens.
     iree_vm_abort_invoke(&state);
+    printf("[vm] done vm abort invoke\n");
   }
 
   // Leave the fiber context now that execution has completed.
@@ -500,8 +506,10 @@ IREE_API_EXPORT iree_status_t iree_vm_begin_invoke(
       .arguments = arguments,
       .results = results,
   };
+  printf("[vm] start module begin call\n");
   state->status =
       function.module->begin_call(function.module->self, stack, call);
+  printf("[vm] done module begin call\n");
 
   // Arguments should no longer be required - they were either consumed by the
   // begin_call or need to be cleaned up before we return.

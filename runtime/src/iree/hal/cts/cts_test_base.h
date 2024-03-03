@@ -40,6 +40,7 @@ class CtsTestBase : public ::testing::TestWithParam<std::string> {
   }
 
   virtual void SetUp() {
+    printf("[test] start SetUp\n");
     const std::string& driver_name = GetParam();
 
     // Get driver with the given name and create its default device.
@@ -70,9 +71,11 @@ class CtsTestBase : public ::testing::TestWithParam<std::string> {
 
     device_allocator_ = iree_hal_device_allocator(device_);
     iree_hal_allocator_retain(device_allocator_);
+    printf("[test] done SetUp\n");
   }
 
   virtual void TearDown() {
+    printf("[test] start TearDown\n");
     if (device_allocator_) {
       iree_hal_allocator_release(device_allocator_);
       device_allocator_ = NULL;
@@ -85,6 +88,7 @@ class CtsTestBase : public ::testing::TestWithParam<std::string> {
       iree_hal_driver_release(driver_);
       driver_ = NULL;
     }
+    printf("[test] done TearDown\n");
   }
 
   // Submits |command_buffer| to the device and waits for it to complete before
@@ -99,6 +103,7 @@ class CtsTestBase : public ::testing::TestWithParam<std::string> {
   iree_status_t SubmitCommandBuffersAndWait(
       iree_host_size_t command_buffer_count,
       iree_hal_command_buffer_t** command_buffers) {
+    printf("[test] start SubmitCommandBuffersAndWait\n");
     // No wait semaphores.
     iree_hal_semaphore_list_t wait_semaphores = iree_hal_semaphore_list_empty();
 
@@ -122,6 +127,7 @@ class CtsTestBase : public ::testing::TestWithParam<std::string> {
     }
 
     iree_hal_semaphore_release(signal_semaphore);
+    printf("[test] done SubmitCommandBuffersAndWait\n");
     return status;
   }
 

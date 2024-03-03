@@ -22,6 +22,7 @@ namespace cts {
 class semaphore_submission_test : public CtsTestBase {};
 
 TEST_P(semaphore_submission_test, SubmitWithNoCommandBuffers) {
+  printf("[test] start SubmitWithNoCommandBuffers\n");
   // No waits, one signal which we immediately wait on after submit.
   iree_hal_semaphore_t* signal_semaphore = NULL;
   IREE_ASSERT_OK(iree_hal_semaphore_create(device_, 0ull, &signal_semaphore));
@@ -40,6 +41,7 @@ TEST_P(semaphore_submission_test, SubmitWithNoCommandBuffers) {
       iree_hal_semaphore_wait(signal_semaphore, 1ull, iree_infinite_timeout()));
 
   iree_hal_semaphore_release(signal_semaphore);
+  printf("[test] done SubmitWithNoCommandBuffers\n");
 }
 
 TEST_P(semaphore_submission_test, SubmitAndSignal) {
