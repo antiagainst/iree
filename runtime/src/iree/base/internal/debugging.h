@@ -7,19 +7,12 @@
 #ifndef IREE_BASE_INTERNAL_DEBUGGING_H_
 #define IREE_BASE_INTERNAL_DEBUGGING_H_
 
+#include "iree/base/attributes.h"
 #include "iree/base/target_platform.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-#if defined(IREE_COMPILER_GCC_COMPAT)
-#define IREE_ATTRIBUTE_ALWAYS_INLINE __attribute__((always_inline))
-#elif defined(IREE_COMPILER_MSVC)
-#define IREE_ATTRIBUTE_ALWAYS_INLINE __forceinline
-#else
-#define IREE_ATTRIBUTE_ALWAYS_INLINE
-#endif  // IREE_COMPILER_*
 
 //===----------------------------------------------------------------------===//
 // Debugger interaction
