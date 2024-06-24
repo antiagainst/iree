@@ -38,8 +38,10 @@ static constexpr unsigned kShuffleBitWidth = 32;
 static llvm::cl::opt<std::string> clTestTarget(
     "iree-gpu-test-target",
     llvm::cl::desc(
-        "The target for IR LIT tests; the interpretation depends on the target "
-        "API. e.g., \"gfx942\" for HIP, \"sm_80\" for CUDA"),
+        "The target for IR LIT tests. Format is '<arch>:<feature>@<api>', "
+        "where <feature> and <api> are optional; e.g., "
+        "'gfx942:+sramecc,-xnack@hip'. If <api> is missing, it will be deduced "
+        "from <arch>; e.g., 'gfx*' defaults to HIP, 'sm_*' defaults to CUDA"),
     llvm::cl::init(""));
 
 namespace mlir::iree_compiler {
@@ -976,17 +978,24 @@ IREE::GPU::TargetAttr getGPUTargetAttr(Operation *op) {
     return getGPUTargetAttr(target);
   }
   if (!clTestTarget.empty()) {
-    // Guess what the target API is based on common scheme. This does not work
-    // for cases like "ampere" which can be accepted by both CUDA and Vulkan.
-    // So it's very limited. However, it makes writing tests simpler. Maybe we
-    // should consider making it explicit in the clTestTarget what API we are
-    // targeting.
-    StringRef backend;
-    if (StringRef(clTestTarget).starts_with("sm_"))
-      backend = "cuda";
-    else if (StringRef(clTestTarget).starts_with("gfx"))
-      backend = "rocm";
-    auto [arch, features] = StringRef(clTestTarget).split(':');
+    auto [archAndFeatures, backend] = StringRef(clTestTarget).split("@");
+    if (backend.empty()) {
+      // Guess what the target API is based on common scheme. This does not work
+      // for cases like "ampere" which can be accepted by both CUDA and Vulkan;
+      // it's very limited. So it's targeting common cases to make writing tests
+      // simpler.
+      if (StringRef(clTestTarget).starts_with("sm_"))
+        backend = "cuda";
+      else if (StringRef(clTestTarget).starts_with("gfx"))
+        backend = "hip";
+      else if (StringRef(clTestTarget).starts_with("adreno"))
+        backend = "vulkan";
+      else if (StringRef(clTestTarget).starts_with("apple"))
+        backend = "vulkan";
+      else if (StringRef(clTestTarget).starts_with("valhall"))
+        backend = "vulkan";
+    }
+    auto [arch, features] = StringRef(archAndFeatures).split(':');
     // Use the target specified in the command line for testing purposes.
     return IREE::GPU::getFullTarget(backend, arch, features, op->getContext());
   }

@@ -561,7 +561,7 @@ std::optional<TargetDetails> getAndroidProfileDetails(StringRef target) {
 //===----------------------------------------------------------------------===//
 
 TargetAttr getMetalTargetDetails(MLIRContext *context) {
-  return createTargetAttr(*getAppleTargetDetails(), /*arch=*/"",
+  return createTargetAttr(*getAppleTargetDetails(), /*arch=*/"apple",
                           /*features=*/"spirv:v1.3,cap:Shader", context);
 }
 
@@ -652,7 +652,8 @@ TargetAttr getFullTarget(StringRef targetAPI, StringRef aliasTarget,
                          StringRef features, MLIRContext *context) {
   return llvm::StringSwitch<TargetAttr>(targetAPI)
       .Case("cuda", getCUDATargetDetails(aliasTarget, features, context))
-      .Case("rocm", getHIPTargetDetails(aliasTarget, features, context))
+      .Case("hip", getHIPTargetDetails(aliasTarget, features, context))
+      .Case("vulkan", getVulkanTargetDetails(aliasTarget, context))
       .Default(nullptr);
 }
 
