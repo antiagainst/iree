@@ -16,10 +16,10 @@
 #include "iree/compiler/Codegen/Common/GPU/GPUPatterns.h"
 #include "iree/compiler/Codegen/Common/Passes.h"
 #include "iree/compiler/Codegen/Dialect/Codegen/IR/IREECodegenAttrs.h"
+#include "iree/compiler/Codegen/Dialect/GPU/IR/IREEGPUAttrs.h"
 #include "iree/compiler/Codegen/SPIRV/KernelConfig.h"
 #include "iree/compiler/Codegen/SPIRV/PassDetail.h"
 #include "iree/compiler/Codegen/SPIRV/Passes.h"
-#include "iree/compiler/Codegen/SPIRV/Utils.h"
 #include "iree/compiler/Codegen/Transforms/Transforms.h"
 #include "iree/compiler/Codegen/Utils/GPUUtils.h"
 #include "iree/compiler/Codegen/Utils/MarkerUtils.h"
@@ -371,11 +371,12 @@ public:
     // Then tile and distribute to subgroups.
 
     {
-      std::optional<int> subgroupSize = getSPIRVSubgroupSize(funcOp);
+      std::optional<int> subgroupSize = getGPUSubgroupSize(funcOp);
       if (!subgroupSize) {
         funcOp.emitError("failed to query subgroup size");
         return signalPassFailure();
       }
+
       SmallVector<int64_t> subgroupTileSizes = getTileSizes(rootOp, 1);
       if (failed(tileToSubgroup(funcOp, subgroupCounts, *subgroupSize,
                                 subgroupTileSizes))) {

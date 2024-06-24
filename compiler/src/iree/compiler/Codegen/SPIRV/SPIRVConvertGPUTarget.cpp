@@ -96,14 +96,16 @@ ClientAPI deduceClientAPI(StringRef backend) {
       .Default(ClientAPI::Unknown);
 }
 
-Vendor deduceVendor(StringRef arch) {
-  if (arch.starts_with("gfx") || arch.starts_with("rdna"))
+Vendor deduceVendor(IREE::GPU::TargetAttr target) {
+  if (target.isAMD())
     return Vendor::AMD;
-  if (arch.starts_with("valhall"))
+  if (target.isApple())
+    return Vendor::Apple;
+  if (target.isARM())
     return Vendor::ARM;
-  if (arch.starts_with("sm_"))
+  if (target.isNVIDIA())
     return Vendor::NVIDIA;
-  if (arch.starts_with("adreno"))
+  if (target.isQualcomm())
     return Vendor::Qualcomm;
   return Vendor::Unknown;
 }
@@ -247,7 +249,7 @@ convertGPUTarget(IREE::HAL::ExecutableVariantOp variant) {
       *version, caps.getArrayRef(), exts.getArrayRef(), variant.getContext());
   return spirv::TargetEnvAttr::get(
       triple, convertLimits(gpuTarget.getArch(), wgp),
-      deduceClientAPI(target.getBackend()), deduceVendor(gpuTarget.getArch()),
+      deduceClientAPI(target.getBackend()), deduceVendor(gpuTarget),
       spirv::DeviceType::Unknown, spirv::TargetEnvAttr::kUnknownDeviceID);
 }
 
@@ -258,29 +260,20 @@ struct SPIRVConvertGPUTargetPass final
   }
 
   void runOnOperation() override {
-    IREE::HAL::ExecutableVariantOp variant = getOperation();
-    IREE::HAL::ExecutableTargetAttr target = variant.getTarget();
+    mlir::ModuleOp moduleOp = getOperation();
+    auto variant = moduleOp->getParentOfType<IREE::HAL::ExecutableVariantOp>();
 
     FailureOr<spirv::TargetEnvAttr> spirvTarget = convertGPUTarget(variant);
     if (failed(spirvTarget))
       return signalPassFailure();
 
-    Builder b(&getContext());
-    auto attrs = llvm::to_vector(target.getConfiguration().getValue());
-    attrs.emplace_back(b.getStringAttr(spirv::getTargetEnvAttrName()),
-                       *spirvTarget);
-    auto configAttr = b.getDictionaryAttr(attrs);
-
-    auto halTarget = IREE::HAL::ExecutableTargetAttr::get(
-        target.getContext(), target.getBackend(), target.getFormat(),
-        configAttr);
-    variant.setTargetAttr(halTarget);
+    moduleOp->setAttr(spirv::getTargetEnvAttrName(), *spirvTarget);
   }
 };
 
 } // namespace
 
-std::unique_ptr<OperationPass<IREE::HAL::ExecutableVariantOp>>
+std::unique_ptr<OperationPass<mlir::ModuleOp>>
 createSPIRVConvertGPUTargetPass() {
   return std::make_unique<SPIRVConvertGPUTargetPass>();
 }

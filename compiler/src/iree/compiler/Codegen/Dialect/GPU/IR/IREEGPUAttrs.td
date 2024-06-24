@@ -375,14 +375,36 @@ def IREEGPU_TargetAttr : AttrDef<IREEGPU_Dialect, "Target"> {
   let assemblyFormat = "`<` struct(params) `>`";
 
   let extraClassDeclaration = [{
+    // Subgroup size related APIs
+
     int getPreferredSubgroupSize() const {
       return getWgp().getSubgroupSizeChoices().asArrayRef().front();
     }
+    int getMinSubgroupSize() const {
+      return *llvm::min_element(getWgp().getSubgroupSizeChoices().asArrayRef());
+    }
+    int getMaxSubgroupSize() const {
+      return *llvm::max_element(getWgp().getSubgroupSizeChoices().asArrayRef());
+    }
+
+    // Hardware feature related APIs
 
     bool supportsSubgroupShuffle() const {
       return bitEnumContainsAll(getWgp().getSubgroup().getValue(),
                                 SubgroupOps::Shuffle);
     }
+
+    // Vendor querying APIs
+
+    bool isAMD() const {
+      return getArch().starts_with("gfx") || getArch().starts_with("rdna");
+    }
+    bool isApple() const { return getArch().starts_with("apple"); }
+    bool isARM() const { return getArch().starts_with("valhall"); }
+    bool isNVIDIA() const { return getArch().starts_with("sm_"); }
+    bool isQualcomm() const { return getArch().starts_with("adreno"); }
+
+    // CUDA specific querying APIs
 
     std::optional<int> getCUDAComputeCapability() const;
     // Returns true if this target supports TensoreCore MMA ops with TF32
